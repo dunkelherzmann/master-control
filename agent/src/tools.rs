@@ -168,7 +168,9 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "windows",
         description: "The open windows, frontmost first: id, title, app, pid, place and size in desktop pixels, which \
-                      one has the focus, which are minimized. Also the size of the whole screen.",
+                      one has the focus, which are minimized. Also the size of the whole screen. On macOS the list includes the dialogs the \
+                      system shows for an app (a permission prompt, an alert), titled with their question: `find` \
+                      and `press` work on their buttons.",
         schema: || object(json!({}), &[]),
         run: crate::control::windows,
     },

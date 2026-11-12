@@ -107,6 +107,11 @@ meant, and check the result (`find` the field, or take a screenshot) before goin
 window and a different screen size, and leaves the user's pointer alone. Use positions for what has no element
 (a canvas, a game, a drawing).
 
+**System dialogs are windows too (macOS).** A dialog the system shows for an app (a permission prompt such as
+"Allow X to access your contacts?", an alert) is in `windows` under the app `UserNotificationCenter`, titled with
+its question. `find` its buttons and `press` one: the pointer isn't used. Answer one only when the user's task
+calls for it.
+
 **Element ids are short-lived.** An id like `3.17` belongs to the tree it came from. If the window changed, the
 id is refused as `element_gone`: call `find` again and use the new id. Never keep ids across steps that change
 the window.

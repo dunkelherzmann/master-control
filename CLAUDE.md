@@ -78,7 +78,9 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
   agents at a scratch copy until Start was run again from the installed app.
 - **macOS windows:** the window list and the accessibility layer name the same window differently (a browser
   tab playing sound has a mark in one); match them by `_AXUIElementGetWindow` (unpublished but present), then
-  title, then place. `AXWindows` lists only the windows on the desktop in view.
+  title, then place. `AXWindows` lists only the windows on the desktop in view. A system dialog (layer 8, owner
+  `UserNotificationCenter`) gives no window number and no title, and the window list counts its shadow (75 points
+  a side on macOS 27) where accessibility doesn't: it is matched by sitting in the middle of the listed frame.
 - **Two clicks on one spot within the double-click time are a double click,** even from two tool calls: don't
   click an element to give it the keyboard when it already has it.
 - **macOS crashes are caught by the recorder** (`mac_crash.rs`): it sets itself as the handler for fatal crashes

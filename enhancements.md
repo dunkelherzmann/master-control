@@ -196,3 +196,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-12 — **Plain wording in the explanatory docs** (all platforms): a pass with the humanizer skill over
   `README.md`, `AGENT-GUIDE.md` and `specs.md`. In #1: one long dash in the spec's macOS observation row became a
   sentence break, and the licence line lost a filler word. The rest already read plainly.
+
+- [x] 2026-11-12 — **System dialogs in the window list** (macOS): the dialogs macOS shows for an app (a permission
+  prompt, an alert) appear in `windows`, titled with their question, so `tree`, `find`, `wait_for` and `press`
+  work on them and an agent can answer one without moving the pointer. Linux and Windows already list their
+  dialogs as ordinary windows.
