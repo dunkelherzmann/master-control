@@ -200,4 +200,4 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-12 — **System dialogs in the window list** (macOS): the dialogs macOS shows for an app (a permission
   prompt, an alert) appear in `windows`, titled with their question, so `tree`, `find`, `wait_for` and `press`
   work on them and an agent can answer one without moving the pointer. Linux and Windows already list their
-  dialogs as ordinary windows.
+  dialogs as ordinary windows. In #2.
