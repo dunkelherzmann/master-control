@@ -278,12 +278,15 @@ fn a_running_program_is_followed_and_left_running() {
     let s = Session::new();
     let file = s.path("after-attach.txt");
     let spawn = |actions: &[String]| std::process::Command::new(TARGET).args(actions).stdout(std::process::Stdio::null()).spawn().unwrap();
-    // It idles first, so the session is in place before it does anything worth seeing.
-    let mut target = spawn(&["sleep=4000".into(), format!("write={file}|x"), "spawn".into(), format!("read={file}"), "exit=4".into()]);
+    // It waits to be told to go, so the session is in place before it does anything worth seeing: the recorder may
+    // itself wait several seconds for a trace session to come free, longer than any fixed idle is sure to cover.
+    let go = s.path("go.txt");
+    let mut target = spawn(&[format!("await={go}"), "sleep=1000".into(), format!("write={file}|x"), "spawn".into(), format!("read={file}"), "exit=4".into()]);
     let pid = target.id();
     let started = s.test.tool("observe_start", json!({"pid": pid}));
     assert_eq!((&started["pid"], &started["command"], &started["attached"]), (&json!(pid), &json!(format!("(running, pid {pid})")), &json!(true)), "{started}");
     let session = started["session"].as_u64().unwrap();
+    std::fs::write(&go, "go").unwrap();
     assert_eq!(target.wait().unwrap().code(), Some(4), "it ran to its own end, unharmed");
     s.finished(session);
     let verdict = s.test.tool("observe_stop", json!({"session": session}));

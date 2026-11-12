@@ -3,7 +3,7 @@
 //!
 //!   write=PATH|TEXT  read=PATH  delete=PATH  rename=FROM|TO  mkdir=PATH  connect=HOST:PORT  listen=PATH_FOR_PORT
 //!   print=TEXT  complain=TEXT  sleep=MILLISECONDS  thread-write=PATH|TEXT  spawn (run the rest as a child)
-//!   segv  abort  exit=CODE
+//!   await=PATH (wait until that file is there)  segv  abort  exit=CODE
 
 use std::io::{Read, Write};
 
@@ -28,6 +28,14 @@ fn main() {
             "print" => println!("{value}"),
             "complain" => eprintln!("{value}"),
             "sleep" => std::thread::sleep(std::time::Duration::from_millis(value.parse().expect("milliseconds"))),
+            // Holds the program until the test says go, however long the test's own set-up took.
+            "await" => {
+                let waiting = std::time::Instant::now();
+                while !std::path::Path::new(value).exists() {
+                    assert!(waiting.elapsed() < std::time::Duration::from_secs(120), "nothing was put at {value}");
+                    std::thread::sleep(std::time::Duration::from_millis(50));
+                }
+            }
             "thread-write" => {
                 let (path, text) = (pair().0.to_string(), pair().1.to_string());
                 std::thread::spawn(move || std::fs::write(path, text).expect("write")).join().expect("thread");
