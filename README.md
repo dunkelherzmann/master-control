@@ -150,7 +150,7 @@ last changed, so every build has its own version without anyone typing one. The 
 ## Open source
 
 Master Control is free and open source under the [MIT License](LICENSE): use it, change it and share it, for
-personal or commercial work. Just keep the copyright and license notice with any copy. Third-party components keep
+personal or commercial work. Keep the copyright and license notice with any copy. Third-party components keep
 their own licenses; see [NOTICES](NOTICES).
 
 ## Support
