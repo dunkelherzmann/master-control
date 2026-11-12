@@ -13,7 +13,8 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 - [ ] **First platform.** Proposed: Linux and Windows first, since the prototype skill already runs there and those
   machines are free for testing; then macOS; then Android.
 - [x] **GitHub repository.** Work stays local; nothing goes to GitHub until a functional, tested prototype is ready
-  (decided 2026-11-11). Then: `dunkelherzmann/master-control`, private, with his yes.
+  (decided 2026-11-11). Published 2026-11-12 at his request as `dunkelherzmann/master-control`, public, with a
+  fresh history starting at 0.2.
 - [ ] **Name.** "Master Control" is tentative.
 - [ ] **Agentless back ends** (VM through the hypervisor, physical machine through a KVM-over-IP device): in the
   first version, or after the four agents work?
@@ -204,13 +205,12 @@ Instruments from their vendors' pages only.
 - The version is `VERSION` (major.minor) plus the commits since that file last changed; `scripts/version.sh` prints
   it and `core/build.rs` builds it in. A build from a copy without git history (what `scripts/check.sh` sends to
   Linux and Windows) gets patch 0 unless `MC_VERSION` is set: the build-and-place script for all three has to pass it.
-- The About link points to github.com/dunkelherzmann/master-control, which doesn't exist until the project is
-  published.
+- The About link points to github.com/dunkelherzmann/master-control, public since 2026-11-12.
 - Not done: the version in the Windows program's file properties; an About entry in a window menu on Linux and
-  Windows (there it is the "About" link in the header); a licence line (there is no licence file yet).
-- Before publishing: the older pictures in `design/screens/` were taken on the real machines and may show their
-  names and addresses; retake them with `master-control picture`, which shows a stand-in.
-- Updating a worker (done by hand 2026-11-11, both now at 0.1.0): send the commit's files, build with
+  Windows (there it is the "About" link in the header); a licence line in the About screen (the `LICENSE` file is there since 0.2).
+- The older pictures in `design/screens/`, taken on the real machines, were removed before publishing; new ones
+  are made with `master-control picture`, which shows a stand-in.
+- Updating a worker (`scripts/place.sh` does this now; by hand it is): send the commit's files, build with
   `MC_VERSION=$(scripts/version.sh)`, then run the new `mc-agent start --name NAME` there (on Windows from the
   desktop session, with `--any-network`); it replaces the program and restarts the worker, and the pairing stays.
   On Windows build over ssh: a build started through the old skill's `mctl exec` said it finished but left the
