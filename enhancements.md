@@ -202,3 +202,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   prompt, an alert) appear in `windows`, titled with their question, so `tree`, `find`, `wait_for` and `press`
   work on them and an agent can answer one without moving the pointer. Linux and Windows already list their
   dialogs as ordinary windows. In 0.2.3, #2.
+
+- [x] 2026-11-12 — **Publish the builds as a release** (all platforms): pre-release 0.2.3 (tag `v0.2.3`) holds the
+  builds already on the three machines, all made from that commit: the Mac app as a zip, the static Linux program
+  as a tar.gz and the Windows program as a zip, with checksums.

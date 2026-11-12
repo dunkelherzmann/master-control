@@ -47,7 +47,9 @@ Android is planned and not started.
 
 ## Installing
 
-There are no downloads yet, so you build it yourself. It takes a few minutes.
+Prebuilt files for macOS, Linux and Windows are on the
+[Releases](https://github.com/dunkelherzmann/master-control/releases) page, with how to open each. Or build it
+yourself, which takes a few minutes.
 
 ```bash
 git clone https://github.com/dunkelherzmann/master-control.git
