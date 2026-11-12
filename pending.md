@@ -55,7 +55,8 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
    - [ ] Linux is tested with one GTK 4 app (zenity); GTK 3, Qt, Electron and Chromium apps are not tried yet
    - [ ] Linux: GTK 4 reports places that are a few pixels off for some widgets; centres still land inside them
    - [ ] Windows is tested with classic Win32 controls; WPF, WinUI, WebView2 and Electron apps are not tried yet
-   - [ ] Element actions beyond the pointer: set a value, toggle, expand, select, press without moving the pointer
+   - [x] Element actions beyond the pointer: `set_value`, `toggle`, `expand`, `select` and `press` without moving
+     the pointer, tested on Linux and Windows
    - [ ] Large trees: reading is one request per property; cache or batch before it is used on big apps
 5. [x] Observation on Linux, first source (2026-11-11; 64 tests pass on Linux): a ptrace tracer for a started
    command, with process, file, network, memory and system-call events, the target's output, crashes, allowed
@@ -155,8 +156,10 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
     modifiers, the clipboard, raising one window among an app's several, a Retina display. From the command line
     each call is a new process, so positions there are desktop positions, not those of the last picture. The accessibility tree is built too (2026-11-11): `tree`, `find` and `wait_for` read a real AppKit
     window on the Mac (a button, a text field with its value, a label, a ticked checkbox, at their places); that
-    test opens a window on the desktop, so it runs only with `MC_MAC_GUI_TESTS=1`. Not tried on macOS: acting on
-    an element by its id, and apps that aren't AppKit (Electron, browsers, SwiftUI). Still to build: several
+    test opens a window on the desktop, so it runs only with `MC_MAC_GUI_TESTS=1`. System dialogs (a permission prompt, an alert) are in the window list (0.2.3), and `find`, `wait_for` and
+    `press` were tried on a real Contacts prompt: both of its buttons answered without the pointer. There is no
+    automated test for that: it needs a real system prompt. Not tried on macOS: the other element actions
+    (`set_value`, `toggle`, `expand`, `select`) outside the gated test, and SwiftUI apps. Still to build: several
     displays.
     Observation is built (2026-11-11; 8 tests on the Mac): a started command and everything it starts are
     recorded without administrator rights, from the reports of a sandbox profile that forbids nothing (spec
