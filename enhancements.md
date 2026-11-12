@@ -36,7 +36,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-11 — **Trackers on disk**: `bugs.md`, `enhancements.md`, `pending.md` and `specs.md` in the project
   root, tracking everything seen and done.
 - [x] 2026-11-11 — **Rust core**: the coding core is Rust, unless a better choice turns up. Recorded in `pending.md`.
-- [ ] 2026-11-11 — **Local first**: work locally; commit to GitHub only once a functional and tested prototype is ready.
+- [x] 2026-11-11 — **Local first**: work locally; commit to GitHub only once a functional and tested prototype is ready.
+  Kept until 2026-11-12, when the project was published at 0.2.
 - [x] 2026-11-11 — **Study the tools left out of the first pass** with craft-and-rea: Frida, strace, Perfetto, Sysmon,
   Process Monitor, API Monitor, Instruments. Spec §4 and §7. Seeing Process Monitor, API Monitor and Instruments in
   use is still open in `pending.md`.
@@ -62,11 +63,11 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Linux — worker installed, paired
   - [x] Windows — worker installed, paired
   - [ ] macOS — the Mac is the master; a macOS worker and its install are not built
-- [ ] 2026-11-11 — **The master controls itself too** (all platforms). The master exposes the same access to its own machine
+- [x] 2026-11-11 — **The master controls itself too** (all platforms). The master exposes the same access to its own machine
   as to a worker, on top of coordinating and controlling the workers: master = full control of itself and of its
   workers; worker = full control of itself by its master.
   - [x] The same tools on the master's own machine, as `machine: "master"` (2026-11-11)
-  - [ ] Screen, input and observation on a macOS master (not built for macOS yet)
+  - [x] Screen, input, the accessibility tree and observation on a macOS master (2026-11-11; in 0.2)
 - [ ] 2026-11-11 — **An app for Master Control** (all platforms), with an original icon: the agentic-brain idea inside a
   circle on a rounded square, in the colours of the macOS Apps icon. Several icon candidates first, before moving on.
   - [x] Icon chosen: candidate D, the ring of six colours (2026-11-11); it is `design/icon.svg`
@@ -200,4 +201,4 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-12 — **System dialogs in the window list** (macOS): the dialogs macOS shows for an app (a permission
   prompt, an alert) appear in `windows`, titled with their question, so `tree`, `find`, `wait_for` and `press`
   work on them and an agent can answer one without moving the pointer. Linux and Windows already list their
-  dialogs as ordinary windows. In #2.
+  dialogs as ordinary windows. In 0.2.3, #2.

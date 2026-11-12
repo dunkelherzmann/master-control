@@ -120,4 +120,5 @@ marked *found in testing*.
   `a_running_program_is_followed_and_left_running` answered "there is no running program with the process id …"
   once in three runs of the full check. The test's program idles four seconds before it acts, and when Windows has
   no trace session free the recorder waits up to eight for one, so the program can be gone before it is followed.
-  The test should let its program idle longer than the recorder may wait.
+  The test should let its program idle longer than the recorder may wait. Seen again the same day: once in two
+  runs of the check for #2.
