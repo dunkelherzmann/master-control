@@ -116,9 +116,11 @@ marked *found in testing*.
   **Fixed 2026-11-11:** the session catches the crash itself as it happens and reads the stack then, so every
   crash of a program the session started has it, report or no report. A program followed by `pid` still relies
   on the report.
-- [ ] 2026-11-12 — **A Windows observation test fails now and then** (Windows; *found in testing*):
+- [x] 2026-11-12 — **A Windows observation test fails now and then** (Windows; *found in testing*):
   `a_running_program_is_followed_and_left_running` answered "there is no running program with the process id …"
   once in three runs of the full check. The test's program idles four seconds before it acts, and when Windows has
   no trace session free the recorder waits up to eight for one, so the program can be gone before it is followed.
   The test should let its program idle longer than the recorder may wait. Seen again the same day: once in two
   runs of the check for #2.
+  **Fixed 2026-11-12 (#5):** the program now waits for a file the test writes once the session has started,
+  instead of idling a fixed time; the full check then passed three times in a row on Windows.
