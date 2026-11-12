@@ -192,3 +192,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   names from an untracked `scripts/hosts.env`); `README.md`, the MIT `LICENSE` and `NOTICES` are new; the guide,
   the spec and the pending list lost their long dashes. The public history starts fresh at 0.2 (his choice): the
   earlier commits held pictures of real desktops and stay on his Mac.
+
+- [x] 2026-11-12 — **Plain wording in the explanatory docs** (all platforms): a pass with the humanizer skill over
+  `README.md`, `AGENT-GUIDE.md` and `specs.md`. In #1: one long dash in the spec's macOS observation row became a
+  sentence break, and the licence line lost a filler word. The rest already read plainly.
