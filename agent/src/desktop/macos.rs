@@ -345,6 +345,7 @@ impl Desktop for MacDesktop {
             let front_pid: i32 = if front.is_null() { -1 } else { msg_send![front, processIdentifier] };
             let count: usize = msg_send![list, count];
             let mut windows: Vec<WindowInfo> = Vec::new();
+            let mut dialogs: Vec<usize> = Vec::new();
             // Which of the front app's windows has the keyboard is the app's to say. Without an answer, it is taken
             // to be its frontmost window of a real size: a browser's suggestions list and other helper windows sit
             // in front of the window they belong to.
@@ -353,8 +354,10 @@ impl Desktop for MacDesktop {
                 let entry: Id = msg_send![list, objectAtIndex: index];
                 let value = |key: &str| -> Id { msg_send![entry, objectForKey: text(key)] };
                 let number = |object: Id| -> f64 { if object.is_null() { 0.0 } else { msg_send![object, doubleValue] } };
-                // Layer 0 is where ordinary windows live; the menu bar, the Dock and overlays are on others.
-                if number(value("kCGWindowLayer")) != 0.0 {
+                // Layer 0 is where ordinary windows live; the menu bar, the Dock and overlays are on others. Layer 8
+                // is where the system puts the dialogs it shows on an app's behalf (a permission prompt, an alert).
+                let layer = number(value("kCGWindowLayer"));
+                if layer != 0.0 && layer != SYSTEM_DIALOG_LAYER {
                     continue;
                 }
                 let bounds = value("kCGWindowBounds");
@@ -377,8 +380,21 @@ impl Desktop for MacDesktop {
                     focused,
                     minimized: false,
                 });
+                if layer == SYSTEM_DIALOG_LAYER {
+                    dialogs.push(windows.len() - 1);
+                }
             }
             CFRelease(list as *const c_void);
+            // A system dialog has no title of its own: its question stands in, so it can be named and waited for.
+            // Its place is the dialog itself, without the shadow the window list counts.
+            for index in dialogs {
+                if let Some((question, frame)) = dialog_seen(&windows[index]) {
+                    if windows[index].title.is_empty() {
+                        windows[index].title = question;
+                    }
+                    windows[index].frame = frame;
+                }
+            }
             // The window the app named, when it is in the list; otherwise the app's frontmost window of a real
             // size, and failing that its frontmost window.
             let of_front = |window: &WindowInfo| window.pid as i32 == front_pid;
@@ -666,10 +682,13 @@ unsafe fn in_window<T>(window: &WindowInfo, with: impl FnOnce(*mut c_void) -> Re
         let count: usize = if windows.is_null() { 0 } else { msg_send![windows, count] };
         // The same window, by the window server's own number for it; where that can't be asked, by its title (a
         // browser words its title differently in the two places: a tab that plays sound gets a mark in one), and
-        // failing that by being exactly where the window is.
+        // failing that by being exactly where the window is. A system dialog answers none of these (its number can't
+        // be asked, the title it is listed under is its question, and the window list counts its shadow where
+        // accessibility doesn't): it is the window that sits in the middle of the listed one.
         let mut found: Id = std::ptr::null_mut();
         let mut by_title: Id = std::ptr::null_mut();
         let mut by_place: Id = std::ptr::null_mut();
+        let mut by_middle: Id = std::ptr::null_mut();
         for index in 0..count {
             let candidate: Id = msg_send![windows, objectAtIndex: index];
             if window_number(candidate.cast()) == Some(window.id) {
@@ -684,9 +703,17 @@ unsafe fn in_window<T>(window: &WindowInfo, with: impl FnOnce(*mut c_void) -> Re
             if frame == Some(window.frame) && by_place.is_null() {
                 by_place = candidate;
             }
+            let middle = |frame: Rect| (2 * frame.x + frame.width as i32, 2 * frame.y + frame.height as i32);
+            let centred = frame.is_some_and(|frame| {
+                let (ours, theirs) = (middle(frame), middle(window.frame));
+                frame.width <= window.frame.width && frame.height <= window.frame.height && (ours.0 - theirs.0).abs() <= 4 && (ours.1 - theirs.1).abs() <= 4
+            });
+            if centred && by_middle.is_null() {
+                by_middle = candidate;
+            }
         }
         if found.is_null() {
-            found = if by_title.is_null() { by_place } else { by_title };
+            found = [by_title, by_place, by_middle].into_iter().find(|candidate| !candidate.is_null()).unwrap_or(std::ptr::null_mut());
         }
         let outcome = if found.is_null() {
             Err(DesktopError::not_supported(format!("the app behind \"{}\" doesn't describe that window to assistive technology", window.title)))
@@ -698,6 +725,40 @@ unsafe fn in_window<T>(window: &WindowInfo, with: impl FnOnce(*mut c_void) -> Re
         }
         CFRelease(app);
         outcome
+    }
+}
+
+/// The window layer of the dialogs macOS shows on an app's behalf (`kCGModalPanelWindowLevel`).
+const SYSTEM_DIALOG_LAYER: f64 = 8.0;
+
+/// What a system dialog asks (its first line of text) and where the dialog itself is. Nothing when it can't be
+/// read (no Accessibility permission).
+///
+/// SAFETY: must run inside an autorelease pool.
+unsafe fn dialog_seen(window: &WindowInfo) -> Option<(String, Rect)> {
+    if !permissions().1 {
+        return None;
+    }
+    unsafe {
+        in_window(window, |dialog| {
+            let children = attribute(dialog, "AXChildren");
+            let count: usize = if children.is_null() { 0 } else { msg_send![children, count] };
+            let mut question = String::new();
+            for index in 0..count {
+                let child: Id = msg_send![children, objectAtIndex: index];
+                if string_attribute(child.cast(), "AXRole") == "AXStaticText" {
+                    question = string_attribute(child.cast(), "AXValue");
+                    if !question.is_empty() {
+                        break;
+                    }
+                }
+            }
+            if !children.is_null() {
+                CFRelease(children as *const c_void);
+            }
+            Ok((question, frame_of(dialog).unwrap_or(window.frame)))
+        })
+        .ok()
     }
 }
 
