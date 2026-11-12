@@ -49,6 +49,9 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
 
 ## Traps
 
+- **Another session works here too** and merges its own pull requests: before tidying trackers or branches, fetch
+  and read `gh pr list --state all`, then change only what is still out of date.
+
 - **Mac tests must not really act.** Tools run from a Claude session inherit Claude's Screen Recording and
   Accessibility permissions, so an input tool would move his mouse: Mac tests call input or screenshot tools
   only when the permission is missing. `MC_NO_ACTIVATE` did not stop the app's window becoming active.
