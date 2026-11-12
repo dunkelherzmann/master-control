@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["core", "agent", "mctl", "app"]
+
+[workspace.package]
+# Cargo wants a number here; the real version is worked out from the VERSION file (scripts/version.sh).
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

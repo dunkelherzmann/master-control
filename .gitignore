@@ -1,0 +1,6 @@
+.investigation/
+.DS_Store
+target/
+.build/
+dist/
+scripts/hosts.env

@@ -1,0 +1,16 @@
+[package]
+name = "mctl"
+description = "Master Control's master: finds workers on the network, pairs with them, and gives an AI agent one MCP server for all of them"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+mc-core = { path = "../core" }
+mc-agent = { path = "../agent" }
+base64 = "0.23.1"
+# In the order written: other programs' settings files are read and written back, and must stay as their
+# owners arranged them.
+serde_json = { version = "1.0.154", features = ["preserve_order"] }
+ureq = "2"
+tiny_http = "0.12"
