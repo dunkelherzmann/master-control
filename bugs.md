@@ -121,8 +121,3 @@ marked *found in testing*.
   once in three runs of the full check. The test's program idles four seconds before it acts, and when Windows has
   no trace session free the recorder waits up to eight for one, so the program can be gone before it is followed.
   The test should let its program idle longer than the recorder may wait.
-
-- [ ] 2026-11-12 — **A Windows observation test fails now and then** (Windows, *found in testing*):
-  `a_running_program_is_followed_and_left_running` failed once with "there is no running program with the process
-  id N" and passed on the next run of the same commit. The test asks to follow its target before the target is
-  seen as running, or after it has gone.
