@@ -116,6 +116,14 @@ pub fn user() -> String {
     std::env::var(if cfg!(windows) { "USERNAME" } else { "USER" }).unwrap_or_default()
 }
 
+/// Whether the user's runtime folder holds a Wayland compositor's socket.
+fn wayland_socket() -> bool {
+    let folder = std::env::var_os("XDG_RUNTIME_DIR").map(std::path::PathBuf::from);
+    folder.and_then(|folder| std::fs::read_dir(folder).ok()).is_some_and(|entries| {
+        entries.flatten().any(|entry| entry.file_name().to_string_lossy().starts_with("wayland-") && !entry.file_name().to_string_lossy().ends_with(".lock"))
+    })
+}
+
 /// What kind of desktop session the agent is in: `x11`, `wayland`, `windows`, `macos`, or `none` when it has no
 /// display to work with.
 pub fn session() -> &'static str {
@@ -127,6 +135,9 @@ pub fn session() -> &'static str {
         "wayland"
     } else if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
         "x11"
+    } else if wayland_socket() {
+        // A user service started before the desktop has neither variable, and still reaches it over the session bus.
+        "wayland"
     } else {
         "none"
     }

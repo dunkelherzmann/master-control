@@ -29,7 +29,8 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 - [ ] Memory: whether whole-program read and write tracing is usable anywhere, or only watched ranges. Spec §4.2
 - [ ] Windows: what the ETW system-call flag gives on Windows 11, and whether API hooking is needed for arguments.
   Spec §4.3
-- [ ] Linux: Wayland capture and input on Ubuntu GNOME without a prompt on every run. Spec §3.3
+- [x] Linux: Wayland capture and input on Ubuntu GNOME without a prompt on every run: a GNOME Shell extension of ours. Spec §3.3
+- [ ] Linux: Wayland desktops other than GNOME (KDE Plasma, wlroots). Spec §3.3
 - [ ] VMs: which hypervisors first, and what each exposes for display and input. Spec §2
 - [ ] MCP: the agent and the master speak protocol versions 2024-11-05 to 2025-06-18. Claude Code connects to the
   master (checked 2026-11-11); the newer protocol revision is still to read. Spec §5
@@ -179,7 +180,7 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
     (2026-11-11), `exec` with `elevated` answers as root, and `sudo eslogger exec` delivered events from this
     session with no further permission asked. Reading it into sessions is not built
 11. [ ] Android bridge: control, then observation
-12. [ ] Wayland
+12. [ ] Wayland: GNOME done; other desktops to come
 13. [ ] Agentless back ends
 
 ## Reference study: what is left

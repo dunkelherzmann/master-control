@@ -153,7 +153,8 @@ impl X11Desktop {
     }
 }
 
-fn keysym(key: Key) -> u32 {
+/// The X symbol for a key; GNOME Shell's virtual keyboard takes the same numbers.
+pub(super) fn keysym(key: Key) -> u32 {
     match key {
         Key::Char(character) => character_keysym(character),
         Key::Enter => 0xff0d,

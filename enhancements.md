@@ -12,7 +12,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [ ] 2026-11-11: **See and drive the machine** (all platforms). The agent sees the monitor and controls the keyboard
   and mouse as if a user sat in front of the computer. Spec §3.
   - [ ] Linux: screen, pointer, keyboard, clipboard and the accessibility tree on X11 built and tested
-    (2026-11-11); Wayland still to come
+    (2026-11-11); GNOME on Wayland built and tested (2026-11-16); other Wayland desktops still to come
   - [ ] Windows: screen, pointer, keyboard, clipboard and the accessibility tree built and tested (2026-11-11);
     window management, app launch and recording still to come
   - [ ] macOS

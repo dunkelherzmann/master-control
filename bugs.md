@@ -124,3 +124,10 @@ marked *found in testing*.
   runs of the check for #2.
   **Fixed 2026-11-12 (#5):** the program now waits for a file the test writes once the session has started,
   instead of idling a fixed time; the full check then passed three times in a row on Windows.
+- [x] 2026-11-16: **No screen or input on Linux after the move to Ubuntu 26.04** (Linux; *found in testing*): the
+  machine now runs GNOME on Wayland only, and `status` reported `screen`, `input` and `accessibility` false;
+  `windows` failed with "X11 setup failed: Authorization required" (the service pointed at GDM's X11 auth file,
+  and Xwayland would show only X11 apps' windows anyway).
+  **Fixed 2026-11-16:** a GNOME Shell extension serves the window list, pictures, input and the clipboard on the
+  session bus, and the agent uses it on Wayland; element positions count from the app's own part of the window,
+  and Chromium windows are matched by how their title begins.

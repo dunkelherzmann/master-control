@@ -7,6 +7,8 @@ mod macos;
 mod windows;
 #[cfg(target_os = "linux")]
 mod atspi;
+#[cfg(target_os = "linux")]
+pub(crate) mod gnome;
 #[cfg(windows)]
 mod uia;
 #[cfg(target_os = "linux")]
@@ -293,12 +295,21 @@ pub fn open() -> Result<Box<dyn Desktop>> {
     }
     #[cfg(target_os = "linux")]
     {
-        if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
+        // A Wayland session, or an agent started outside the session's environment (a user service that began
+        // before the desktop did): the desktop is reached over the session bus. Xwayland's DISPLAY would show only
+        // the windows of X11 apps.
+        let set = |name: &str| std::env::var_os(name).is_some_and(|value| !value.is_empty());
+        if set("WAYLAND_DISPLAY") || !set("DISPLAY") {
+            match gnome::GnomeDesktop::open() {
+                Ok(desktop) => return Ok(Box::new(desktop)),
+                Err(error) if set("WAYLAND_DISPLAY") || gnome::shell_runs() => return Err(error),
+                Err(_) => {}
+            }
+        }
+        if set("DISPLAY") {
             Ok(Box::new(x11::X11Desktop::open()?))
-        } else if std::env::var_os("WAYLAND_DISPLAY").is_some() {
-            Err(DesktopError::not_supported("Wayland sessions without an X display aren't supported yet"))
         } else {
-            Err(DesktopError::not_supported("the agent isn't running in a desktop session (DISPLAY is not set)"))
+            Err(DesktopError::not_supported("the agent isn't running in a desktop session (neither DISPLAY nor WAYLAND_DISPLAY is set, and no GNOME Shell answers on the session bus)"))
         }
     }
     #[cfg(target_os = "macos")]

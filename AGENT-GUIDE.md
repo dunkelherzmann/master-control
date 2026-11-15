@@ -147,6 +147,12 @@ first step that is refused unless `keep_going` is set. Check `ok` and each step'
 
 Do not retry the same call unchanged after a refusal: read the reason first.
 
+**Linux on GNOME under Wayland** works like X11 once the agent's GNOME Shell extension runs (it starts with the
+first sign-in after `mc-agent start`; `status` says so until then). Two things differ. A locked screen refuses
+pictures and input: the session must be unlocked first (`loginctl unlock-session`, as root). Chromium-based browsers
+and Electron apps describe their contents to `tree` and `find` only when started after the agent first read a
+window, or with `--force-renderer-accessibility`.
+
 ## Observing a program
 
 ```json

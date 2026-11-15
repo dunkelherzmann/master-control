@@ -30,7 +30,7 @@ The agent gets these as an MCP server, a command line (`mctl call`) and an HTTP 
 | | Linux | Windows | macOS |
 |---|---|---|---|
 | Commands, jobs, files | yes | yes | yes |
-| Screen, pointer, keyboard, clipboard | X11 (no Wayland yet) | yes | yes, after you allow Screen Recording and Accessibility |
+| Screen, pointer, keyboard, clipboard | X11, and GNOME on Wayland | yes | yes, after you allow Screen Recording and Accessibility |
 | Inside a window | AT-SPI | UI Automation | Accessibility |
 | Input without taking the screen | element actions | element actions | element actions, and `background` clicks and keys |
 | Observation | system calls, files, network, memory (x86-64) | files, network, registry, memory (needs admin) | programs, files, ports, with less detail; more with admin rights |
@@ -41,7 +41,8 @@ Android is planned and not started.
 ## Requirements
 
 - [Rust](https://rustup.rs), a recent stable version. Nothing else: there are no system libraries to install.
-- Linux: an X11 session for the screen and input tools.
+- Linux: an X11 session, or GNOME on Wayland, for the screen and input tools. On GNOME under Wayland, `mc-agent start`
+  installs a small GNOME Shell extension for them, which starts working after the next sign-in.
 - Windows: an administrator account for observation.
 - macOS: Apple's Command Line Tools (`xcode-select --install`) to build the app.
 

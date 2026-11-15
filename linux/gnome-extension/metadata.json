@@ -1,0 +1,8 @@
+{
+  "uuid": "master-control@dunkelherzmann.github.io",
+  "name": "Master Control",
+  "description": "Lets the Master Control agent see and drive this desktop: the window list, pictures of the screen, real pointer and keyboard input, and the clipboard, over the session bus.",
+  "url": "https://github.com/dunkelherzmann/master-control",
+  "shell-version": ["46", "47", "48", "49", "50"],
+  "version": 1
+}
