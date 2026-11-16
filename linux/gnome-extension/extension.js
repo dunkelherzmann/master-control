@@ -63,7 +63,9 @@ function now() {
 
 class Service {
     constructor() {
-        const seat = Clutter.get_default_backend().get_default_seat();
+        // GNOME 51 dropped Clutter.get_default_backend(); the stage's context has the backend since 46.
+        const backend = global.stage.context?.get_backend?.() ?? Clutter.get_default_backend();
+        const seat = backend.get_default_seat();
         this._pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
         this._keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._held = new Set();
