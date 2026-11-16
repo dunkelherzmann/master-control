@@ -135,3 +135,16 @@ marked *found in testing*.
   dialog (libadwaita) reports AT-SPI positions that leave out the dialog's own padding, about 30 pixels on each axis,
   on Wayland and X11 alike, so a pointer click by an element's id lands beside the button. Element actions (`press`,
   `set_value`) don't use positions and work. Open: whether it is GTK's or libadwaita's, and a report upstream.
+
+- [x] 2026-11-16: **No screen or input on Linux after the upgrade to Ubuntu 26.10 (GNOME 51)** (Linux; *found in
+  testing*): the extension's metadata didn't list GNOME 51, and GNOME 51 removed `Clutter.get_default_backend()`,
+  so the extension stopped with a TypeError at sign-in and `status` reported `screen` and `input` false.
+  **Fixed 2026-11-16:** `shell-version` includes 51, and the virtual input devices come from the backend of
+  `global.stage.context`, with the old call kept for older shells.
+
+- [ ] 2026-11-16: **The X11 suite's two AT-SPI tests fail on Ubuntu 26.10** (Linux; *found in testing*):
+  `the_tree_names_what_is_in_a_window_and_elements_can_be_clicked` and
+  `elements_are_pressed_set_ticked_opened_and_selected_without_the_pointer` time out: the GTK 4 fixture under Xvfb
+  never describes itself to AT-SPI ("doesn't describe its windows to assistive technology"). The same tests passed
+  on 26.04; the GNOME (Wayland) test passes.
+
