@@ -168,6 +168,9 @@ pub fn install(name: Option<&str>, any_network: bool) -> io::Result<Vec<String>>
         run("systemctl", &["--user", "enable", SERVICE])?;
         run("systemctl", &["--user", "restart", SERVICE])?;
         done.push(format!("installed and started the user service {SERVICE} (starts with the desktop session)"));
+        if let Some(note) = gnome_extension()? {
+            done.push(note);
+        }
         if run("sudo", &["-n", "true"]).is_ok() {
             done.push("admin rights: this user can use sudo without a password, so elevated commands work".into());
         } else {
@@ -262,6 +265,54 @@ fn stop() -> io::Result<()> {
     }
 }
 
+/// Puts the GNOME Shell extension that serves the screen, input and window list on Wayland in place and enables it,
+/// on a machine with GNOME Shell. Says what was done, and when it starts working.
+#[cfg(target_os = "linux")]
+fn gnome_extension() -> io::Result<Option<String>> {
+    use crate::desktop::gnome;
+    let has_shell = std::path::Path::new("/usr/bin/gnome-shell").exists();
+    if !has_shell {
+        return Ok(None);
+    }
+    let folder = gnome::folder();
+    std::fs::create_dir_all(&folder)?;
+    let changed = std::fs::read_to_string(folder.join("extension.js")).ok().as_deref() != Some(gnome::EXTENSION);
+    std::fs::write(folder.join("metadata.json"), gnome::METADATA)?;
+    std::fs::write(folder.join("extension.js"), gnome::EXTENSION)?;
+    // Enabled through its setting, which the shell reads at sign-in and watches while it runs.
+    let enabled = Command::new("gsettings").args(["get", "org.gnome.shell", "enabled-extensions"]).output();
+    let list = enabled.as_ref().ok().filter(|output| output.status.success()).map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string());
+    let Some(list) = list else {
+        return Ok(Some(format!(
+            "put the GNOME Shell extension {} in place, but couldn't enable it (gsettings failed): enable it in the session with `gnome-extensions enable {}`",
+            gnome::UUID,
+            gnome::UUID
+        )));
+    };
+    if let Some(new) = with_extension(&list, gnome::UUID) {
+        run("gsettings", &["set", "org.gnome.shell", "enabled-extensions", &new])?;
+    }
+    let running = gnome::loaded_api().is_some();
+    Ok(Some(match (running, changed) {
+        (true, false) => format!("the GNOME Shell extension {} is in place and running", gnome::UUID),
+        (true, true) => format!("updated the GNOME Shell extension {}: the shell runs the new one after the user next signs in", gnome::UUID),
+        (false, _) => format!(
+            "installed and enabled the GNOME Shell extension {} (screen, input and windows on Wayland): GNOME Shell loads it when the user next signs in",
+            gnome::UUID
+        ),
+    }))
+}
+
+/// GNOME's list of enabled extensions (as `gsettings get` prints it) with one more; None when it is there already.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn with_extension(list: &str, uuid: &str) -> Option<String> {
+    if list.contains(&format!("'{uuid}'")) {
+        return None;
+    }
+    let names = list.trim().trim_start_matches("@as").trim().trim_start_matches('[').trim_end_matches(']').trim();
+    Some(if names.is_empty() { format!("['{uuid}']") } else { format!("[{names}, '{uuid}']") })
+}
+
 /// Takes the worker out of the session's start-up and removes what the install added. The agent's own folder (its
 /// pairing, token and logs) is the caller's to remove.
 pub fn uninstall() -> io::Result<Vec<String>> {
@@ -274,6 +325,15 @@ pub fn uninstall() -> io::Result<Vec<String>> {
         if std::fs::remove_file(unit).is_ok() {
             let _ = run("systemctl", &["--user", "daemon-reload"]);
             done.push(format!("removed the user service {SERVICE}"));
+        }
+        let folder = crate::desktop::gnome::folder();
+        if folder.exists() && std::fs::remove_dir_all(&folder).is_ok() {
+            let uuid = crate::desktop::gnome::UUID;
+            if let Ok(output) = Command::new("gsettings").args(["get", "org.gnome.shell", "enabled-extensions"]).output() {
+                let list = String::from_utf8_lossy(&output.stdout).replace(&format!(", '{uuid}'"), "").replace(&format!("'{uuid}', "), "").replace(&format!("'{uuid}'"), "");
+                let _ = run("gsettings", &["set", "org.gnome.shell", "enabled-extensions", list.trim()]);
+            }
+            done.push(format!("removed the GNOME Shell extension {uuid} (the shell lets go of it when the user next signs in)"));
         }
     }
     #[cfg(target_os = "macos")]
@@ -306,6 +366,13 @@ pub fn uninstall() -> io::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_extension_is_added_to_gnomes_list_once() {
+        assert_eq!(with_extension("@as []", "a@b").as_deref(), Some("['a@b']"));
+        assert_eq!(with_extension("['ding@x', 'dock@y']\n", "a@b").as_deref(), Some("['ding@x', 'dock@y', 'a@b']"));
+        assert_eq!(with_extension("['ding@x', 'a@b']", "a@b"), None);
+    }
 
     #[test]
     fn the_service_starts_the_worker_with_the_desktop_session() {

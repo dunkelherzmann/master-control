@@ -33,8 +33,8 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
 - `cargo test --workspace` on the Mac; `scripts/check.sh` on all three machines (sends the last commit to Linux
   and Windows over ssh; `-w` sends the working tree). It runs clippy on each machine: code gated per system
   leaves helpers and imports unused elsewhere, which only that system's lint shows.
-- Linux GUI tests use Xvfb. Windows GUI tests must run in the desktop session (`mctl exec --cwd`): ssh alone has
-  no screen.
+- Linux GUI tests use Xvfb (they set `DISPLAY` and clear `WAYLAND_DISPLAY`, which picks the X11 backend).
+  Windows GUI tests must run in the desktop session (`mctl exec --cwd`): ssh alone has no screen.
 - `macos/scripts/build.sh` makes `dist/Master Control.app`; the Linux file is the static musl build.
 - `scripts/place.sh [mac linux windows]` builds the last commit and installs it on all three (master, apps,
   workers), and fails unless every copy then reports the new version. Use it instead of doing those steps by hand.
@@ -102,6 +102,25 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
 - **Test GUI input against a real toolkit app as well as a raw fixture window:** a raw X11 window accepted a
   borrowed-keycode character that GTK 4 dropped. Run a new suite several times before merging; flaky tests
   showed only on reruns.
+- **GNOME on Wayland** (the Linux machine runs Ubuntu 26.04, Wayland only): screen, input, windows and clipboard
+  go through our shell extension (`linux/gnome-extension/`, embedded in `mc-agent`, installed by `start`). Its
+  `API` number in `extension.js` and `gnome.rs` goes up together with any change to its methods. GNOME Shell loads
+  a new or changed extension only at sign-in, and GJS caches modules by path, so reloading it in place keeps the
+  old code. To run a change without signing out, run `linux/scripts/load-gnome-extension.sh` on the Linux machine
+  (after `mc-agent start` put the new files in place): it loads a copy from a new folder named after the UUID
+  through Looking Glass, typed with Mutter's RemoteDesktop D-Bus API, which needs no prompt.
+  `org.gnome.Shell.Screenshot` and `Introspect` refuse callers that aren't GNOME's own. The session locks after 5
+  idle minutes; `sudo loginctl unlock-session N` unlocks it without the password.
+- **AT-SPI positions on Wayland** are relative to the window. Count from the client rectangle
+  (`frame_rect_to_client_rect`) when the shell draws the title bar (`decorated`, Xwayland apps), else from the frame:
+  for an app that draws its own frame the client rectangle includes its invisible shadow border. libadwaita dialogs
+  (zenity 4) give positions that leave out their padding, so the X11 tree test uses a plain GTK 4 dialog of ours.
+  Chromium's accessible title leaves out the profile name and the zero-width space the shell's title has.
+- **The GNOME test** drives the signed-in session, so it runs only when asked: on the Linux machine,
+  `MC_GNOME_GUI_TESTS=1 cargo test -p mc-agent --test desktop_gnome` (the extension must be running, the screen
+  unlocked).
+- **Restarting the worker service closes what its `exec` started** (same cgroup): start test windows that must
+  outlive a reinstall with `systemd-run --user --collect`.
 - **X11:** a window must select ButtonPress to receive ButtonRelease (the release goes to whoever took the
   press).
 - **Fonts:** embed only a static file per weight (`fc-scan` says `variable=False`); Ubuntu's R/M/B files are one

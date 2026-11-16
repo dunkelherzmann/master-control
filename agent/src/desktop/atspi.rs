@@ -90,6 +90,14 @@ impl Bus {
                 (true, Some(frame)) => return Some(frame),
                 // The process's only window, under a title the toolkit words differently.
                 (true, None) if frames.len() == 1 => return frames.into_iter().next(),
+                // Several, none under the window's exact title: the one whose title begins most like it. Chromium
+                // leaves the profile's name and a zero-width space out of its accessible title.
+                (true, None) => {
+                    let best = frames.iter().map(|frame| (shared_start(&self.name(frame), &window.title), frame)).max_by_key(|(shared, _)| *shared);
+                    if let Some((_, frame)) = best.filter(|(shared, _)| *shared >= 3) {
+                        return Some(frame.clone());
+                    }
+                }
                 (false, Some(frame)) if by_title_only.is_none() => by_title_only = Some(frame),
                 _ => {}
             }
@@ -97,6 +105,12 @@ impl Bus {
         // A window whose process the X server doesn't know (no _NET_WM_PID) can only be found by its title.
         by_title_only.filter(|_| window.pid == 0)
     }
+}
+
+/// How many characters two titles begin with alike, leaving out zero-width characters.
+fn shared_start(one: &str, other: &str) -> usize {
+    let visible = |title: &str| title.chars().filter(|character| !matches!(character, '\u{200b}'..='\u{200d}' | '\u{2060}' | '\u{feff}')).collect::<Vec<_>>();
+    visible(one).iter().zip(visible(other).iter()).take_while(|(a, b)| a == b).count()
 }
 
 struct Reading<'a> {
@@ -338,4 +352,16 @@ pub fn tree(window: &WindowInfo, limits: TreeLimits) -> Result<(Element, bool)> 
         return Err(failed("the window stopped answering while it was read"));
     }
     Ok((element, reading.cut))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::shared_start;
+
+    #[test]
+    fn titles_are_compared_by_how_they_begin() {
+        assert_eq!(shared_start("Page - Microsoft Edge", "Page - Personal - Microsoft\u{200b} Edge"), 7);
+        assert_eq!(shared_start("Restore pages", "Page - Personal - Microsoft Edge"), 0);
+        assert_eq!(shared_start("Mic\u{200b}rosoft", "Microsoft"), 9);
+    }
 }

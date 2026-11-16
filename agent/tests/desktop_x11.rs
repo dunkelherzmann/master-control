@@ -40,6 +40,9 @@ fn private_display() {
         let display: u32 = line.trim().parse().expect("Xvfb is needed for these tests (sudo apt install xvfb) and must print its display number");
         std::env::set_var("DISPLAY", format!(":{display}"));
         std::env::remove_var("WAYLAND_DISPLAY");
+        // With WAYLAND_DISPLAY unset, toolkits still try the session's wayland-0 socket: keep them on Xvfb.
+        std::env::set_var("GDK_BACKEND", "x11");
+        std::env::set_var("QT_QPA_PLATFORM", "xcb");
         // A session bus of the test's own too, so the accessibility bus the apps join is not the user's.
         let script = "dbus-daemon --session --nofork --print-address=1 2>/dev/null & d=$!; \
                       while kill -0 $PPID 2>/dev/null; do sleep 0.3; done; kill $d";
@@ -451,12 +454,12 @@ fn element<'a>(answer: &'a Value, role: &str, name: &str) -> &'a Value {
 
 /// A real GTK dialog with a label, a text field and two buttons. It prints the field's text when OK is pressed.
 fn dialog(title: &str) -> std::process::Child {
-    Command::new("zenity")
-        .args(["--entry", "--title", title, "--text", "Your name", "--entry-text", "start"])
+    Command::new("python3")
+        .args([concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gtk_entry_dialog.py"), title])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
         .spawn()
-        .expect("zenity is needed for these tests (sudo apt install zenity)")
+        .expect("python3 with GTK 4 is needed for this test (sudo apt install python3-gi gir1.2-gtk-4.0)")
 }
 
 #[test]

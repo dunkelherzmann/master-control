@@ -5,7 +5,7 @@ under test does while it runs. It is for coding, testing and QA of apps written 
 Code. "Master Control" is a working name.
 
 Status: in development. Built and tested so far: the agent's core (§5) with `status`, `exec`, `job`, `jobs`, `kill`,
-`push` and `pull` on macOS, Linux and Windows; the event store (§4.2); and on Linux (X11) and Windows the screen,
+`push` and `pull` on macOS, Linux and Windows; the event store (§4.2); and on Linux (X11, and GNOME on Wayland) and Windows the screen,
 input and window-content tools `screenshot`, `windows`, `focus`, `click`, `double_click`, `right_click`, `move`,
 `drag`, `scroll`, `type_text`, `key`, `clipboard_get`, `clipboard_set`, `tree`, `find`, `wait_for` and the element
 actions `press`, `set_value`, `toggle`, `expand` and `select` (§3); and on
@@ -99,11 +99,21 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | | Screen | Input | Reading the UI |
 |---|---|---|---|
 | **Linux, X11** | X11 capture (GetImage) | XTEST; characters the layout lacks through a borrowed keycode | AT-SPI over the accessibility bus; the agent switches on the session's "assistive technology is listening" flag, which makes Qt and Chromium apps describe themselves |
-| **Linux, Wayland** | compositor capture (portal / screencopy), per compositor; **to prove** on GNOME without a prompt on every run | libei or a virtual input device | AT-SPI |
+| **Linux, GNOME on Wayland** | GNOME Shell's own screenshot, through Master Control's shell extension (`linux/gnome-extension/`, served on the session bus); the whole screen, Wayland and Xwayland windows alike, with no prompt | a virtual pointer and keyboard of the shell's own seat, through the same extension: real input to every app. Characters the layout lacks go through the input method into the focused text field | AT-SPI, as on X11. Positions count from the app's own part of the window (below the title bar the shell draws for an X11 app), since a Wayland app doesn't know where its window is |
+| **Linux, other Wayland desktops** | not built | not built | AT-SPI |
 | **Windows** | GDI today; Windows.Graphics.Capture for windows that GDI can't see | SendInput in the desktop session, text as Unicode | UI Automation |
 | **macOS** | the system's own `screencapture`, for the rectangle asked for | Core Graphics events; text as the characters themselves; a second click soon after the first is sent as a double click | Accessibility (AX), for the window with the same title among its app's windows. Windows come from the window server's list |
 | **Android** | pushed server: encoded screen stream or `screencap` | pushed server: input injection, or `input` commands as fallback | `uiautomator` hierarchy |
 | **VM, agentless** | the hypervisor's display (VNC or its own API) | the hypervisor's input channel | none (pictures only) |
+
+On GNOME under Wayland, other programs get no window list, no picture of the screen and no input, and GNOME Shell
+keeps its own D-Bus services for these to a few programs of its own. `mc-agent start` therefore installs a small
+shell extension, `master-control@dunkelherzmann.github.io`, and enables it; GNOME Shell loads new extensions when
+the user next signs in. It serves the window list (place, title, app, pid, focus), bringing a window forward, pictures
+of any part of the screen, the pointer, buttons, the wheel, keys, text and the clipboard on the session bus, under
+`io.github.dunkelherzmann.MasterControl`. The agent reaches it over the session bus alone, so it needs neither
+`DISPLAY` nor `WAYLAND_DISPLAY`: a user service started before the desktop finds it too. Until it runs, `status`
+reports no screen or input and says why. Pictures and input refuse while the screen is locked.
 | **Physical, agentless** | HDMI capture on a KVM-over-IP device | USB HID gadget keyboard and mouse | none (pictures only) |
 
 Permissions the user grants once: on macOS Screen Recording (pictures, and other apps' window titles) and
