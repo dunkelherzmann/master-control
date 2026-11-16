@@ -43,14 +43,48 @@ fn private_display() {
         // With WAYLAND_DISPLAY unset, toolkits still try the session's wayland-0 socket: keep them on Xvfb.
         std::env::set_var("GDK_BACKEND", "x11");
         std::env::set_var("QT_QPA_PLATFORM", "xcb");
-        // A session bus of the test's own too, so the accessibility bus the apps join is not the user's.
-        let script = "dbus-daemon --session --nofork --print-address=1 2>/dev/null & d=$!; \
-                      while kill -0 $PPID 2>/dev/null; do sleep 0.3; done; kill $d";
-        let mut child = Command::new("sh").args(["-c", script]).stdout(Stdio::piped()).spawn().expect("sh starts");
+        // A session bus and an accessibility bus of the test's own, so the apps describe themselves there and not on
+        // the user's. Both are dbus-daemon: at-spi's own launcher may run dbus-broker, which can start the registry
+        // only through systemd, and it would put its socket in the user's runtime folder.
+        let folder = std::env::temp_dir().join(format!("mc-x11-buses-{}", std::process::id()));
+        let services = folder.join("services");
+        std::fs::create_dir_all(&services).unwrap();
+        std::fs::write(
+            services.join("org.a11y.atspi.Registry.service"),
+            "[D-BUS Service]\nName=org.a11y.atspi.Registry\nExec=/usr/libexec/at-spi2-registryd\n",
+        )
+        .unwrap();
+        let config = std::fs::read_to_string("/usr/share/defaults/at-spi2/accessibility.conf")
+            .expect("at-spi2-core is needed for these tests (sudo apt install at-spi2-core)");
+        let start = config.find("<servicedir>").expect("accessibility.conf names a service folder");
+        let end = config[start..].find("</servicedir>").unwrap() + start + "</servicedir>".len();
+        let config = format!("{}<servicedir>{}</servicedir>{}", &config[..start], services.display(), &config[end..]);
+        std::fs::write(folder.join("accessibility.conf"), config).unwrap();
+        let runtime = folder.join("runtime");
+        std::fs::create_dir_all(&runtime).unwrap();
+        std::fs::set_permissions(&runtime, std::os::unix::fs::PermissionsExt::from_mode(0o700)).unwrap();
+        let session = format!("unix:path={}", folder.join("session").display());
+        let accessibility = format!("unix:path={}", folder.join("accessibility").display());
+        std::env::set_var("XDG_RUNTIME_DIR", &runtime);
+        std::env::set_var("DBUS_SESSION_BUS_ADDRESS", &session);
+        // Set before the buses start, so the registry they start finds its bus too.
+        std::env::set_var("AT_SPI_BUS_ADDRESS", &accessibility);
+        let script = "dbus-daemon --session --nofork --address=\"$DBUS_SESSION_BUS_ADDRESS\" --print-address=1 2>/dev/null & s=$!; \
+                      dbus-daemon --config-file=\"$1/accessibility.conf\" --nofork --address=\"$AT_SPI_BUS_ADDRESS\" 2>/dev/null & a=$!; \
+                      while kill -0 $PPID 2>/dev/null; do sleep 0.3; done; kill $s $a; sleep 1; rm -rf \"$1\"";
+        let mut child = Command::new("sh")
+            .args(["-c", script, "sh", folder.to_str().unwrap()])
+            .stdout(Stdio::piped())
+            .spawn()
+            .expect("sh starts");
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
         assert!(line.starts_with("unix:"), "dbus-daemon is needed for these tests and must print its address, not {line:?}");
-        std::env::set_var("DBUS_SESSION_BUS_ADDRESS", line.trim());
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !folder.join("accessibility").exists() {
+            assert!(Instant::now() < deadline, "the test's accessibility bus never started");
+            std::thread::sleep(Duration::from_millis(20));
+        }
     });
 }
 

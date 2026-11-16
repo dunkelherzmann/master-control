@@ -31,6 +31,11 @@ impl Bus {
         let unavailable = |error: zbus::Error| {
             DesktopError::not_supported(format!("the accessibility bus can't be reached, so windows' contents can't be read: {error}"))
         };
+        // The address toolkits themselves look at first, so a bus given this way is the one the apps are on.
+        if let Some(address) = std::env::var("AT_SPI_BUS_ADDRESS").ok().filter(|address| !address.is_empty()) {
+            let connection = Builder::address(address.as_str()).and_then(|builder| builder.build()).map_err(unavailable)?;
+            return Ok(Bus { connection });
+        }
         let session = Connection::session().map_err(unavailable)?;
         // Many apps (Qt, Chromium, Electron) only describe their windows once something says it is listening.
         let _ = session.call_method(Some("org.a11y.Bus"), "/org/a11y/bus", Some(PROPERTIES), "Set", &("org.a11y.Status", "IsEnabled", Value::from(true)));
