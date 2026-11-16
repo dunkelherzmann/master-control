@@ -48,6 +48,15 @@ const LISTED = new Set([
     Meta.WindowType.TOOLBAR, Meta.WindowType.SPLASHSCREEN,
 ]);
 
+// The extension stays on while the screen is locked (session mode unlock-dialog), so the agent can say the screen
+// is locked instead of losing the shell; it refuses pictures and input until the session is unlocked.
+const LOCKED = 'the screen is locked: unlock the session first (as root: loginctl unlock-session)';
+
+function unlocked() {
+    if (Main.sessionMode.isLocked)
+        throw new Error(LOCKED);
+}
+
 function now() {
     return GLib.get_monotonic_time();
 }
@@ -95,7 +104,10 @@ class Service {
             .filter(window => LISTED.has(window.get_window_type()) && !window.is_override_redirect())
             .map(window => {
                 const frame = window.get_frame_rect();
-                const client = window.frame_rect_to_client_rect(frame);
+                // Where the app counts its positions from: below the title bar the shell draws for it, if it draws
+                // one; else the visible frame (the client rectangle of an app that draws its own frame includes its
+                // invisible shadow border).
+                const client = window.decorated ? window.frame_rect_to_client_rect(frame) : frame;
                 return {
                     id: window.get_id().toString(),
                     title: window.get_title() ?? '',
@@ -110,6 +122,7 @@ class Service {
     }
 
     Activate(id) {
+        unlocked();
         const window = global.get_window_actors().map(actor => actor.meta_window).find(window => window.get_id().toString() === id.toString());
         if (!window)
             return false;
@@ -119,12 +132,13 @@ class Service {
 
     async CaptureAsync([x, y, width, height], invocation) {
         try {
+            unlocked();
             const stream = Gio.MemoryOutputStream.new_resizable();
             await new Shell.Screenshot().screenshot_area(x, y, width, height, stream);
             stream.close(null);
             invocation.return_value(new GLib.Variant('(ay)', [stream.steal_as_bytes().get_data()]));
         } catch (error) {
-            invocation.return_error_literal(Gio.DBusError, Gio.DBusError.FAILED, `the picture failed: ${error.message}`);
+            invocation.return_error_literal(Gio.DBusError, Gio.DBusError.FAILED, error.message === LOCKED ? LOCKED : `the picture failed: ${error.message}`);
         }
     }
 
@@ -134,14 +148,18 @@ class Service {
     }
 
     MovePointer(x, y) {
+        unlocked();
         this._pointer.notify_absolute_motion(now(), x, y);
     }
 
     Button(button, down) {
+        if (down)
+            unlocked();
         this._pointer.notify_button(now(), button, down ? Clutter.ButtonState.PRESSED : Clutter.ButtonState.RELEASED);
     }
 
     Scroll(right, down) {
+        unlocked();
         const turn = (count, forward, back) => {
             for (let notch = 0; notch < Math.abs(count); notch++)
                 this._pointer.notify_discrete_scroll(now(), count > 0 ? forward : back, Clutter.ScrollSource.WHEEL);
@@ -151,8 +169,10 @@ class Service {
     }
 
     Key(keyval, down) {
-        if (down)
+        if (down) {
+            unlocked();
             this._held.add(keyval);
+        }
         else
             this._held.delete(keyval);
         this._keyboard.notify_keyval(now(), keyval, down ? Clutter.KeyState.PRESSED : Clutter.KeyState.RELEASED);
@@ -161,6 +181,7 @@ class Service {
     // Plain ASCII goes in as key presses, the way the on-screen keyboard sends it. Anything else needs the input
     // method: key presses only reach characters the keyboard layout has, which leaves out most of Unicode.
     Text(text) {
+        unlocked();
         const ascii = /^[\x20-\x7e\n\t]*$/.test(text);
         if (!ascii && Main.inputMethod.currentFocus) {
             Main.inputMethod.commit(text);
@@ -177,11 +198,16 @@ class Service {
     }
 
     async GetClipboardAsync(_parameters, invocation) {
+        if (Main.sessionMode.isLocked) {
+            invocation.return_error_literal(Gio.DBusError, Gio.DBusError.FAILED, LOCKED);
+            return;
+        }
         const text = await new Promise(resolve => St.Clipboard.get_default().get_text(St.ClipboardType.CLIPBOARD, (_clipboard, got) => resolve(got)));
         invocation.return_value(new GLib.Variant('(s)', [text ?? '']));
     }
 
     SetClipboard(text) {
+        unlocked();
         St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
     }
 }

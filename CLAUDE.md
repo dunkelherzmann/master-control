@@ -111,9 +111,14 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
   through Looking Glass, typed with Mutter's RemoteDesktop D-Bus API, which needs no prompt.
   `org.gnome.Shell.Screenshot` and `Introspect` refuse callers that aren't GNOME's own. The session locks after 5
   idle minutes; `sudo loginctl unlock-session N` unlocks it without the password.
-- **AT-SPI positions on Wayland** are relative to the window, and an Xwayland window's frame includes the title bar
-  GNOME draws for it: count from the client rectangle (`frame_rect_to_client_rect`). Chromium's accessible title
-  leaves out the profile name and the zero-width space the shell's title has.
+- **AT-SPI positions on Wayland** are relative to the window. Count from the client rectangle
+  (`frame_rect_to_client_rect`) when the shell draws the title bar (`decorated`, Xwayland apps), else from the frame:
+  for an app that draws its own frame the client rectangle includes its invisible shadow border. libadwaita dialogs
+  (zenity 4) give positions that leave out their padding, so the X11 tree test uses a plain GTK 4 dialog of ours.
+  Chromium's accessible title leaves out the profile name and the zero-width space the shell's title has.
+- **The GNOME test** drives the signed-in session, so it runs only when asked: on the Linux machine,
+  `MC_GNOME_GUI_TESTS=1 cargo test -p mc-agent --test desktop_gnome` (the extension must be running, the screen
+  unlocked).
 - **Restarting the worker service closes what its `exec` started** (same cgroup): start test windows that must
   outlive a reinstall with `systemd-run --user --collect`.
 - **X11:** a window must select ButtonPress to receive ButtonRelease (the release goes to whoever took the

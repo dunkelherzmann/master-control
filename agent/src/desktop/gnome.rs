@@ -24,6 +24,14 @@ fn failed<E: std::fmt::Display>(error: E) -> DesktopError {
     DesktopError::failed(format!("GNOME Shell: {error}"))
 }
 
+/// A refusal from the extension, without D-Bus's wrapping: it says itself why (the screen is locked, say).
+fn refused(error: zbus::Error) -> DesktopError {
+    match &error {
+        zbus::Error::MethodError(_, Some(message), _) => DesktopError::failed(message.trim_start_matches("Error: ").to_string()),
+        _ => failed(error),
+    }
+}
+
 /// Where the extension is installed for this user.
 pub fn folder() -> PathBuf {
     crate::state::user_home().join(".local/share/gnome-shell/extensions").join(UUID)
@@ -56,7 +64,6 @@ pub struct GnomeDesktop {
 struct Screen {
     width: u32,
     height: u32,
-    locked: bool,
 }
 
 #[derive(Deserialize)]
@@ -104,11 +111,11 @@ impl GnomeDesktop {
         B: serde::Serialize + zbus::zvariant::DynamicType,
         R: for<'d> zbus::zvariant::DynamicDeserialize<'d>,
     {
-        self.connection.call_method(Some(NAME), PATH, Some(NAME), method, body).map_err(failed)?.body().deserialize().map_err(failed)
+        self.connection.call_method(Some(NAME), PATH, Some(NAME), method, body).map_err(refused)?.body().deserialize().map_err(failed)
     }
 
     fn act(&self, method: &str, body: &(impl serde::Serialize + zbus::zvariant::DynamicType)) -> Result<()> {
-        self.connection.call_method(Some(NAME), PATH, Some(NAME), method, body).map_err(failed)?;
+        self.connection.call_method(Some(NAME), PATH, Some(NAME), method, body).map_err(refused)?;
         Ok(())
     }
 
@@ -120,14 +127,6 @@ impl GnomeDesktop {
     fn screen(&self) -> Result<Screen> {
         let json: String = self.call("Screen", &())?;
         serde_json::from_str(&json).map_err(failed)
-    }
-
-    /// Input and pictures mean nothing on the lock screen: say so instead of acting on it.
-    fn unlocked(&self) -> Result<()> {
-        if self.screen()?.locked {
-            return Err(DesktopError::failed("the screen is locked: unlock the session first (as root: loginctl unlock-session)"));
-        }
-        Ok(())
     }
 }
 
@@ -180,7 +179,6 @@ impl Desktop for GnomeDesktop {
     }
 
     fn focus(&self, window: u64) -> Result<()> {
-        self.unlocked()?;
         let found: bool = self.call("Activate", &(window,))?;
         if !found {
             return Err(DesktopError::gone("there is no such window now"));
@@ -193,7 +191,6 @@ impl Desktop for GnomeDesktop {
     }
 
     fn move_pointer(&self, x: i32, y: i32) -> Result<()> {
-        self.unlocked()?;
         self.act("MovePointer", &(f64::from(x), f64::from(y)))
     }
 
@@ -216,7 +213,6 @@ impl Desktop for GnomeDesktop {
     }
 
     fn text(&self, text: &str) -> Result<()> {
-        self.unlocked()?;
         let _how: String = self.call("Text", &(text,))?;
         Ok(())
     }
