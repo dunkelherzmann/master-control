@@ -153,7 +153,7 @@ marked *found in testing*.
   private runtime folder and name it in `AT_SPI_BUS_ADDRESS`, which the agent reads first, as toolkits do.
 
 
-- [ ] 2026-11-19: **Agents leave helper files behind on the workers** (all; *reported by Herbert*): `exec` ran in
+- [x] 2026-11-19: **Agents leave helper files behind on the workers** (all; *reported by Herbert*): `exec` ran in
   the user's home and relative `push`/`pull` paths started there, so every helper script, log, brief and stray
   redirect (`$null`, `C`, `nul`) a session wrote stayed in the home folder (about 45 on Windows, a dozen on Linux),
   and jobs' output was never removed (620 job folders on Linux).
@@ -161,3 +161,6 @@ marked *found in testing*.
   commands run there and relative paths start there; it is removed when the conversation ends, or a day after its
   last use, and job output after a week. The agent sweeps at start and hourly; the guide tells agents to keep
   scratch files there.
+  **Fixed 2026-11-19 (#14, 0.2.14):** placed on all three machines; a conversation's folder on Linux and Windows
+  was gone once it closed, and the first sweep cut Linux's job folders from 620 to 182. The leftovers already in
+  the homes went to each machine's Trash.
