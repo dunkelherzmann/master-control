@@ -212,8 +212,9 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   time over `bugs.md` and `enhancements.md`. Their long dashes are gone: dates and platform names are followed by a
   colon. No entry was removed or reordered.
 
-- [ ] 2026-11-20: **Faster, lighter screenshots that keep clicks on target** (all platforms), from a codigus pass
+- [x] 2026-11-20: **Faster, lighter screenshots that keep clicks on target** (all platforms), from a codigus pass
   over Master Control. A screenshot returned to an agent is kept to a 1080p screen's worth of pixels (at most 2576 on
   a side): Claude's models shrink anything larger, after which their positions no longer match the picture's pixels
   (the Mac's 3440x1440 and Windows' 2560x1600 screens were over the limit). `full_size` keeps every pixel. PNGs are
-  written with fast compression, about a tenth of the time.
+  written with fast compression, about a tenth of the time. Shipped in 0.2.16 (#16): a default screenshot now takes 211 ms on the Mac (was 293), 618 ms on
+  Linux (was 929) and 229 ms on Windows (was 882).
