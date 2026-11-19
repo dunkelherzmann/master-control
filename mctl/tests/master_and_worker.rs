@@ -91,6 +91,34 @@ fn raw_post(address: &str, path: &str, body: &[u8]) -> (u16, Vec<u8>) {
 }
 
 #[test]
+fn what_a_conversation_leaves_on_its_machines_goes_when_it_ends() {
+    let worker = Worker::new();
+    let (mut master, home) = master();
+    let machine = paired(&master, &worker);
+    master.begin_work_session();
+    let mut folders = Vec::new();
+    for name in ["test-worker", "master"] {
+        let written = master.run(name, "push", &json!({"path": "helper.ps1", "text": "a helper script"})).unwrap();
+        let helper = PathBuf::from(written["path"].as_str().unwrap());
+        assert!(helper.is_file());
+        let folder = helper.parent().unwrap().to_path_buf();
+        let status = master.run(name, "status", &Value::Null).unwrap();
+        assert_eq!(PathBuf::from(status["working_folder"].as_str().unwrap()), folder, "{name}: commands run where the file went");
+        assert!(folder.file_name().unwrap().to_string_lossy().starts_with("mcp-"), "{folder:?}");
+        folders.push(folder);
+    }
+    assert!(folders[0].starts_with(worker.home.join("work")), "{:?}", folders[0]);
+    assert_eq!(folders[0].file_name(), folders[1].file_name(), "one conversation, one name on every machine");
+    master.end_work_session();
+    for folder in &folders {
+        assert!(!folder.exists(), "{folder:?} is removed when the conversation ends");
+    }
+    // A call outside any conversation (`mctl call`) still works, in the worker's shared folder.
+    assert!(master.call(&machine, "exec", &json!({"command": "echo still here"})).is_ok());
+    let _ = std::fs::remove_dir_all(home);
+}
+
+#[test]
 fn a_master_with_the_code_pairs_and_runs_the_workers_tools() {
     let worker = Worker::new();
     let (master, home) = master();

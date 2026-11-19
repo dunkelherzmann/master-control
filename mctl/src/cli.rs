@@ -35,7 +35,7 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
         return mc_agent::cli::run(arguments);
     }
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
-    let master = match Master::open(default_home()) {
+    let mut master = match Master::open(default_home()) {
         Ok(master) => master,
         Err(error) => return fail(&format!("the master's folder can't be used: {error}")),
     };
@@ -100,7 +100,12 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
             Err(error) => fail(&error.to_string()),
         },
         ["unpair", machine] => master.unpair(machine).map_err(|failure| failure.to_string()),
-        ["mcp"] => crate::mcp::serve(&master, std::io::stdin().lock(), std::io::stdout().lock()).map_err(|error| error.to_string()),
+        ["mcp"] => {
+            master.begin_work_session();
+            let served = crate::mcp::serve(&master, std::io::stdin().lock(), std::io::stdout().lock());
+            master.end_work_session();
+            served.map_err(|error| error.to_string())
+        }
         [] | ["help"] | ["--help"] | ["-h"] => {
             println!("{USAGE}");
             Ok(())

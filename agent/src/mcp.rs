@@ -15,7 +15,7 @@ fn error(id: &Value, code: i64, message: &str) -> Value {
 }
 
 /// Answers one request. None for a notification, which gets no answer.
-fn handle_one(agent: &Agent, via: &str, message: &Value) -> Option<Value> {
+fn handle_one(agent: &Agent, via: &str, session: Option<&str>, message: &Value) -> Option<Value> {
     let id = message.get("id").cloned();
     let Some(method) = message.get("method").and_then(Value::as_str) else {
         // A response to something we never asked, or not a request at all.
@@ -49,7 +49,7 @@ fn handle_one(agent: &Agent, via: &str, message: &Value) -> Option<Value> {
                 return Some(error(&id, -32602, &format!("there is no tool named {name}")));
             }
             // A tool that fails is still an answer: the model reads the message and can try again.
-            match agent.call(via, name, &params["arguments"]) {
+            match agent.call_in(via, session, name, &params["arguments"]) {
                 Ok(mut result) => {
                     // A picture goes as an image the model can look at, not as base64 inside the text.
                     let picture = result.as_object_mut().and_then(|object| object.remove("png_base64"));
@@ -71,26 +71,34 @@ fn handle_one(agent: &Agent, via: &str, message: &Value) -> Option<Value> {
 }
 
 /// Answers a request body: one message, or a batch. None when nothing in it needs an answer.
-pub fn handle_bytes(agent: &Agent, via: &str, bytes: &[u8]) -> Option<Value> {
+pub fn handle_bytes(agent: &Agent, via: &str, session: Option<&str>, bytes: &[u8]) -> Option<Value> {
     match serde_json::from_slice::<Value>(bytes) {
         Err(_) => Some(error(&Value::Null, -32700, "the message isn't JSON")),
         Ok(Value::Array(messages)) if messages.is_empty() => Some(error(&Value::Null, -32600, "an empty batch")),
         Ok(Value::Array(messages)) => {
-            let answers: Vec<Value> = messages.iter().filter_map(|message| handle_one(agent, via, message)).collect();
+            let answers: Vec<Value> = messages.iter().filter_map(|message| handle_one(agent, via, session, message)).collect();
             (!answers.is_empty()).then_some(Value::Array(answers))
         }
-        Ok(message) => handle_one(agent, via, &message),
+        Ok(message) => handle_one(agent, via, session, &message),
     }
 }
 
-/// Serves MCP on the given input and output, one JSON message a line, until the input ends.
-pub fn serve_stdio(agent: &Agent, input: impl BufRead, mut output: impl Write) -> io::Result<()> {
+/// Serves MCP on the given input and output, one JSON message a line, until the input ends. The conversation is one
+/// session: its working folder is removed when the input ends.
+pub fn serve_stdio(agent: &Agent, input: impl BufRead, output: impl Write) -> io::Result<()> {
+    let session = format!("stdio-{}", std::process::id());
+    let served = serve_lines(agent, &session, input, output);
+    agent.end_session(&session);
+    served
+}
+
+fn serve_lines(agent: &Agent, session: &str, input: impl BufRead, mut output: impl Write) -> io::Result<()> {
     for line in input.lines() {
         let line = line?;
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(answer) = handle_bytes(agent, "stdio", line.as_bytes()) {
+        if let Some(answer) = handle_bytes(agent, "stdio", Some(session), line.as_bytes()) {
             writeln!(output, "{answer}")?;
             output.flush()?;
         }

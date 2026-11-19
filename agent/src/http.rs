@@ -121,7 +121,7 @@ fn handle(agent: &Agent, mut request: Request) {
                 Ok(bytes) => bytes,
                 Err((status, code, message)) => return respond_error(request, status, code, message),
             };
-            match mcp::handle_bytes(agent, "mcp", &bytes) {
+            match mcp::handle_bytes(agent, "mcp", None, &bytes) {
                 Some(answer) => respond_json(request, 200, &answer),
                 // Only notifications came: accepted, nothing to say.
                 None => respond(request, 202, "application/json", Vec::new()),
@@ -158,7 +158,7 @@ fn files(agent: &Agent, mut request: Request, method: &Method, query: &str) {
     else {
         return respond_error(request, 400, "bad_input", "add ?path=… (percent-encoded)");
     };
-    let resolved = state::resolve(&path);
+    let resolved = agent.in_working_folder(None, || state::resolve(&path)).unwrap_or_else(|_| state::resolve(&path));
     let began = std::time::Instant::now();
     let (tool, result) = if *method == Method::Put {
         let bytes = match body(&mut request) {

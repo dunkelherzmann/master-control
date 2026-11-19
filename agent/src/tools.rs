@@ -74,7 +74,7 @@ pub const TOOLS: &[Tool] = &[
                 json!({
                     "argv": {"type": "array", "items": {"type": "string"}, "description": "Program and arguments."},
                     "command": {"type": "string", "description": "A shell command line, instead of argv."},
-                    "cwd": {"type": "string", "description": "Working folder. Default: the user's home."},
+                    "cwd": {"type": "string", "description": "Working folder. Default: the session's own folder (`working_folder` in status), removed when the session ends; `~` is the user's home."},
                     "env": {"type": "object", "additionalProperties": {"type": "string"}, "description": "Extra environment variables."},
                     "stdin": {"type": "string", "description": "Text to send to the command's input."},
                     "timeout_s": {"type": "integer", "description": "Seconds before it is stopped. Default 120, at most 3600. Ignored with detach."},
@@ -117,8 +117,10 @@ pub const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "push",
-        description: "Write a file on the machine. `~` is the user's home. The folder is created if missing; an \
-                      existing file is replaced. For files over a few megabytes use HTTP PUT /v1/files instead.",
+        description: "Write a file on the machine. A relative path is in the session's own working folder, which is \
+                      removed when the session ends, so put helper scripts and scratch files there; `~` is the user's \
+                      home. The folder is created if missing; an existing file is replaced. For files over a few \
+                      megabytes use HTTP PUT /v1/files instead.",
         schema: || {
             object(
                 json!({
@@ -558,6 +560,8 @@ fn status(agent: &Agent, _args: &Value) -> Result<Value, ToolError> {
         "session": platform::session(),
         "uptime_ms": agent.started.elapsed().as_millis() as u64,
         "jobs_running": agent.jobs.running(),
+        // Where commands run and relative paths start: this session's own folder, removed when the session ends.
+        "working_folder": state::working_folder().display().to_string(),
         "tools": TOOLS.iter().map(|tool| tool.name).collect::<Vec<_>>(),
         // On macOS: what the user has yet to allow in System Settings > Privacy & Security.
         "permissions_needed": permissions_needed,

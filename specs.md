@@ -285,6 +285,11 @@ Windows a guard can be a registry key (`HKCU\Software\App`); names there match w
 - The agent's folder holds the token, the audit log, jobs' output and `agent.json` (the port in use):
   `~/Library/Application Support/Master Control` on macOS, `~/.local/share/master-control` on Linux,
   `%LOCALAPPDATA%\Master Control` on Windows, or wherever `MC_HOME` or `--home` says.
+- Each conversation gets a working folder in the agent's folder (`work/NAME`; the master names its MCP conversation
+  to every machine it calls, `mc-agent mcp` names its own, and direct HTTP calls share `work/shared`). Commands run
+  there and relative paths start there; `~` is the user's home. The folder is removed when the conversation ends,
+  once no job runs in it, or a day after its last use; jobs' output is removed a week after the job ended. The
+  agent sweeps when it starts and every hour, so agents leave nothing in the user's home or on the desktop.
 - Everything the agent does is written to its own audit log: how the request came, the tool, its arguments, when,
   the result. File contents, a command's input and environment values are left out of it.
 - `exec` answers with the end of a command's output (256 KB of each stream); `job` reads all of it in pieces. A
