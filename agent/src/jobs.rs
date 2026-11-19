@@ -45,6 +45,8 @@ pub struct Job {
     pub pid: u32,
     pub command: String,
     pub started_ms: u64,
+    /// The folder it runs in: a session's working folder stays while a job runs in it.
+    pub cwd: PathBuf,
     folder: PathBuf,
     progress: Mutex<Progress>,
     changed: Condvar,
@@ -154,11 +156,12 @@ impl Jobs {
             command.args(&spec.argv[1..]);
             (command, spec.argv.join(" "))
         };
+        let cwd = spec.cwd.unwrap_or_else(crate::state::working_folder);
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let folder = self.folder.join(id.to_string());
         fs::create_dir_all(&folder)?;
         command
-            .current_dir(spec.cwd.unwrap_or_else(crate::state::user_home))
+            .current_dir(&cwd)
             .envs(spec.env)
             .stdin(if spec.stdin.is_some() { Stdio::piped() } else { Stdio::null() })
             .stdout(File::create(folder.join("stdout.log"))?)
@@ -176,6 +179,7 @@ impl Jobs {
             pid: child.id(),
             command: shown,
             started_ms: now_ms(),
+            cwd,
             folder,
             progress: Mutex::new(Progress::default()),
             changed: Condvar::new(),
@@ -198,6 +202,32 @@ impl Jobs {
 
     pub fn all(&self) -> Vec<Arc<Job>> {
         self.jobs.lock().unwrap().values().cloned().collect()
+    }
+
+    /// Removes the output of jobs that ended more than `age` ago, and of earlier runs' jobs as old as that, so job
+    /// logs don't pile up on a machine that stays in use. Returns how many were removed.
+    pub fn prune(&self, age: Duration) -> usize {
+        let limit = now_ms().saturating_sub(age.as_millis() as u64);
+        let mut removed = 0;
+        let mut jobs = self.jobs.lock().unwrap();
+        jobs.retain(|_, job| {
+            let old = job.snapshot().ended_ms.is_some_and(|ended| ended < limit);
+            if old && fs::remove_dir_all(&job.folder).is_ok() {
+                removed += 1;
+            }
+            !old
+        });
+        let Ok(entries) = fs::read_dir(&self.folder) else { return removed };
+        // The newest folder stays, whatever its age: ids carry on from it after a restart.
+        let newest = self.next.load(Ordering::SeqCst).saturating_sub(1);
+        for entry in entries.flatten() {
+            let id = entry.file_name().to_str().and_then(|name| name.parse::<u64>().ok());
+            let keep = id.is_some_and(|id| id == newest || jobs.contains_key(&id));
+            if !keep && crate::state::older_than(&entry.path(), age) && fs::remove_dir_all(entry.path()).is_ok() {
+                removed += 1;
+            }
+        }
+        removed
     }
 
     pub fn running(&self) -> usize {

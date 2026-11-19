@@ -120,6 +120,12 @@ the window.
 `background: true`: nothing comes to the front and the real pointer and keyboard are not used. Element actions
 never use them, on any system. A person may be working on that machine.
 
+**Leave no files behind.** Each conversation has a working folder of its own on every machine (`working_folder`
+in `status`): `exec` runs there unless given `cwd`, and a relative path in `push` or `pull` is in it. It is removed
+when the conversation ends (or a day after its last use, if the end never arrives), and job output after a week.
+So write helper scripts, logs and scratch files with relative paths, never into `~` or onto the desktop; use `~`
+only for what must stay, such as an app you install for the user.
+
 **Use `batch` for sequences.** It saves round trips and keeps steps together:
 
 ```json
@@ -182,7 +188,7 @@ say what a machine can do.
 `exec` with `detach: true` → `job` with `wait_ms` until `state` is `exited` → read `exit_code` and the output.
 
 **Copy a file to a worker and run it.**
-`push` (`path`, `content_base64`) → `exec`.
+`push` (a relative `path`, so it goes with the conversation; `content_base64`) → `exec`.
 
 **Check a GUI change.**
 `exec` to start the app (detached) → `wait_for` its window → `tree` to read it → element actions → `screenshot`

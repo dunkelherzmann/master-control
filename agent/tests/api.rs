@@ -376,8 +376,67 @@ fn a_path_starting_with_a_tilde_is_in_the_users_home() {
     let real = PathBuf::from(written["path"].as_str().unwrap());
     let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from).unwrap();
     assert_eq!(real, home.join(&name));
-    assert_eq!(test.tool("pull", json!({"path": name}))["size"], 1, "a relative path starts at home too");
+    assert_eq!(test.tool("pull", json!({"path": format!("~/{name}")}))["size"], 1);
+    assert_eq!(test.refused("pull", json!({"path": name})), (404, "not_found".into()), "a relative path isn't in the home");
     std::fs::remove_file(real).unwrap();
+}
+
+/// The folder a session's commands run in, as the command itself sees it.
+fn folder_seen_by(agent: &mc_agent::Agent, session: &str) -> PathBuf {
+    let command = if cfg!(windows) { "cd" } else { "pwd -P" };
+    let ran = agent.call_in("test", Some(session), "exec", &json!({"command": command})).unwrap();
+    PathBuf::from(ran["stdout"].as_str().unwrap().trim())
+}
+
+#[test]
+fn each_session_works_in_its_own_folder_which_goes_when_it_ends() {
+    let test = Test::new();
+    let agent = &test.running.as_ref().unwrap().agent;
+    let written = agent.call_in("test", Some("one"), "push", &json!({"path": "helper.txt", "text": "left behind"})).unwrap();
+    let helper = PathBuf::from(written["path"].as_str().unwrap());
+    let folder = helper.parent().unwrap().to_path_buf();
+    assert_eq!(folder, test.home.join("work").join("one"), "a relative path is in the session's folder");
+    let seen = folder_seen_by(agent, "one");
+    assert_eq!(seen.canonicalize().unwrap(), folder.canonicalize().unwrap(), "commands run there");
+    assert!(seen.canonicalize().unwrap().starts_with(test.home.join("work").canonicalize().unwrap()));
+    let status = agent.call_in("test", Some("one"), "status", &json!({})).unwrap();
+    assert_eq!(PathBuf::from(status["working_folder"].as_str().unwrap()), folder);
+    assert_ne!(folder_seen_by(agent, "two").canonicalize().unwrap(), folder.canonicalize().unwrap(), "another session has another");
+    // Calls that name no session share one folder, also in the agent's own.
+    let shared = PathBuf::from(test.tool("status", json!({}))["working_folder"].as_str().unwrap());
+    assert_eq!(shared, test.home.join("work").join("shared"));
+    assert_eq!(agent.call_in("test", Some("../out"), "status", &json!({})).unwrap_err().code, "bad_input");
+
+    // A job still running in the folder keeps it; once it ends, the folder goes.
+    let job = agent.call_in("test", Some("one"), "exec", &json!({"command": long_command(), "detach": true})).unwrap();
+    agent.end_session("one");
+    assert!(helper.is_file(), "kept while a job runs in it");
+    test.tool("kill", json!({"id": job["job"]}));
+    agent.sweep();
+    assert!(!folder.exists(), "removed once nothing runs there");
+    assert!(test.home.join("work").join("two").exists(), "the other session's stays");
+}
+
+#[test]
+fn what_earlier_runs_left_and_old_job_output_are_swept() {
+    let test = Test::new();
+    let agent = &test.running.as_ref().unwrap().agent;
+    let ended = test.tool("exec", json!({"command": "echo done"}));
+    let left = test.home.join("work").join("from-an-earlier-run");
+    std::fs::create_dir_all(&left).unwrap();
+    std::fs::write(left.join("junk.ps1"), "x").unwrap();
+    let old_job = test.home.join("jobs").join("0");
+    std::fs::create_dir_all(&old_job).unwrap();
+    std::thread::sleep(Duration::from_millis(50));
+    let running = test.tool("exec", json!({"command": long_command(), "detach": true}));
+    // Young enough: nothing goes.
+    assert_eq!(agent.sweep(), (0, 0));
+    let (folders, jobs) = agent.sweep_older_than(Duration::from_millis(10), Duration::from_millis(10));
+    assert!(folders >= 1 && !left.exists(), "a folder no session uses any more goes");
+    assert!(jobs >= 2 && !old_job.exists(), "old job output goes: {jobs}");
+    assert_eq!(test.refused("job", json!({"id": ended["job"]})), (404, "not_found".into()));
+    assert_eq!(test.tool("job", json!({"id": running["job"]}))["state"], "running", "a running job is kept");
+    test.tool("kill", json!({"id": running["job"]}));
 }
 
 #[test]

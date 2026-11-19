@@ -152,3 +152,12 @@ marked *found in testing*.
   runtime folder, replacing the desktop's own. The tests now run their own accessibility bus with dbus-daemon in a
   private runtime folder and name it in `AT_SPI_BUS_ADDRESS`, which the agent reads first, as toolkits do.
 
+
+- [ ] 2026-11-19: **Agents leave helper files behind on the workers** (all; *reported by Herbert*): `exec` ran in
+  the user's home and relative `push`/`pull` paths started there, so every helper script, log, brief and stray
+  redirect (`$null`, `C`, `nul`) a session wrote stayed in the home folder (about 45 on Windows, a dozen on Linux),
+  and jobs' output was never removed (620 job folders on Linux).
+  **Fix:** each conversation gets its own working folder on every machine it uses (`working_folder` in `status`);
+  commands run there and relative paths start there; it is removed when the conversation ends, or a day after its
+  last use, and job output after a week. The agent sweeps at start and hourly; the guide tells agents to keep
+  scratch files there.

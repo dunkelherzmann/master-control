@@ -149,10 +149,19 @@ fn sealed(agent: &Agent, shared: &Mutex<Shared>, request: Request, body: &[u8]) 
                 Ok(()) => json!({ "ok": { "forgotten": true } }),
                 Err(error) => json!({ "error": { "code": "failed", "message": format!("the worker couldn't save that: {error}") } }),
             }
+        } else if message["tool"] == "end_work_session" {
+            // The master's conversation is over: what it left in its working folder goes.
+            match message["work_session"].as_str() {
+                Some(name) => {
+                    agent.end_session(name);
+                    json!({ "ok": { "ended": name } })
+                }
+                None => json!({ "error": { "code": "bad_input", "message": "end_work_session needs work_session" } }),
+            }
         } else if message["tool"] == "list_tools" {
             json!({ "ok": { "tools": crate::tool_list() } })
         } else {
-            match agent.call("master", message["tool"].as_str().unwrap_or_default(), &message["args"]) {
+            match agent.call_in("master", message["work_session"].as_str(), message["tool"].as_str().unwrap_or_default(), &message["args"]) {
                 Ok(result) => json!({ "ok": result }),
                 Err(error) => json!({ "error": { "code": error.code, "message": error.message } }),
             }

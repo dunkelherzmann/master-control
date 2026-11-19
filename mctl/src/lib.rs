@@ -71,6 +71,10 @@ pub struct Master {
     home: PathBuf,
     name: String,
     sessions: Mutex<HashMap<String, Session>>,
+    /// The conversation this master serves (one `mctl mcp`), named to every machine it calls so each gives it a
+    /// working folder of its own; and the machines it has called, which are told when it ends.
+    work_session: Option<String>,
+    worked_on: Mutex<std::collections::BTreeSet<String>>,
     /// The master's own machine: the same tools, run here.
     own: std::sync::Arc<mc_agent::Agent>,
 }
@@ -162,7 +166,7 @@ impl Master {
         }
         let name = std::env::var("MC_MASTER_NAME").ok().filter(|name| !name.is_empty()).unwrap_or_else(|| OWN_NAME.to_string());
         let own = mc_agent::Agent::new(home.join("own"))?;
-        Ok(Master { home, name, sessions: Mutex::new(HashMap::new()), own })
+        Ok(Master { home, name, sessions: Mutex::new(HashMap::new()), work_session: None, worked_on: Mutex::new(Default::default()), own })
     }
 
     /// The workers this master is paired with, by name.
@@ -240,7 +244,12 @@ impl Master {
                 session.number += 1;
                 (session.id.clone(), session.number)
             };
-            match self.exchange(machine, &json!({ "session": session, "number": number, "tool": tool, "args": args })) {
+            let mut message = json!({ "session": session, "number": number, "tool": tool, "args": args });
+            if let Some(work) = &self.work_session {
+                message["work_session"] = json!(work);
+                self.worked_on.lock().unwrap().insert(machine.name.clone());
+            }
+            match self.exchange(machine, &message) {
                 // The worker restarted since the conversation began: begin another, once.
                 Err(failure) if failure.code == "stale_session" && attempt == 0 => {
                     self.sessions.lock().unwrap().remove(&machine.address);
@@ -249,6 +258,26 @@ impl Master {
             }
         }
         unreachable!("the second attempt returns")
+    }
+
+    /// Makes this master serve one conversation: every machine gives it a working folder of its own, removed by
+    /// `end_work_session`.
+    pub fn begin_work_session(&mut self) {
+        let random: String = link::random::<6>().iter().map(|byte| format!("{byte:02x}")).collect();
+        self.work_session = Some(format!("mcp-{}-{random}", std::process::id()));
+    }
+
+    /// Tells this machine and every worker the conversation used that it is over, so each removes what was left in
+    /// its working folder. A worker that can't be reached removes it a day later by itself.
+    pub fn end_work_session(&self) {
+        let Some(work) = &self.work_session else { return };
+        self.own.end_session(work);
+        let used: Vec<String> = self.worked_on.lock().unwrap().iter().cloned().collect();
+        for name in used {
+            if let Ok(machine) = self.machine(&name) {
+                let _ = self.call(&machine, "end_work_session", &Value::Null);
+            }
+        }
     }
 
     /// The name the master's own machine goes by.
@@ -285,7 +314,9 @@ impl Master {
         // A worker that was given one of these names is still reachable: workers are looked up first.
         match self.machine(machine) {
             Ok(worker) => self.call(&worker, tool, args),
-            Err(_) if self.is_own(machine) => self.own.call("master", tool, args).map_err(|error| Failure::new(error.code, error.message)),
+            Err(_) if self.is_own(machine) => {
+                self.own.call_in("master", self.work_session.as_deref(), tool, args).map_err(|error| Failure::new(error.code, error.message))
+            }
             Err(unknown) => Err(Failure::new("unknown_machine", format!("{}, and the master's own machine is {}", unknown.message.trim_start_matches("unknown_machine: "), self.name))),
         }
     }
