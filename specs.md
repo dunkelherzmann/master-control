@@ -50,7 +50,7 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | Tool | What it does |
 |---|---|
 | `status` | Agent version, platform, session type, whether the helper is elevated, which capabilities work here |
-| `screenshot` | The whole screen, one display, one window or a region; scaled on request; returns an image and a capture id |
+| `screenshot` | The whole screen, one display, one window or a region; returns an image and a capture id. A returned picture is kept to a 1080p screen's worth of pixels (at most 2576 on a side), what Claude's models take in unshrunk, so their positions stay its pixels; `full_size` keeps every pixel, `max_width` shrinks it further, and a picture saved with `save_to` is full size |
 | `windows`, `apps` | Open windows (title, app, pid, frame, stacking order, state); installed and running apps. On macOS the dialogs the system shows for an app (a permission prompt, an alert) are listed too, titled with their question, so the element tools can read and answer them |
 | `tree` | One window's accessibility tree: role, name, value, frame and state of each element, with element ids tied to that capture |
 | `find`, `wait_for` | Find elements by role or text; wait until an element, window or text appears or goes |

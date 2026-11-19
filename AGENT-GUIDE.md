@@ -94,6 +94,8 @@ The MCP tool list has the full description and arguments of each.
 
 **Positions belong to a picture.** `x` and `y` are in the pixels of the last `screenshot` you took (or of the one
 you name with `capture`). Take a fresh screenshot after anything that could have changed the screen.
+A big screen comes back shrunk to about 1080p (`scale` says by how much), which is what a model sees anyway;
+for small text, take a `region` or one `window` instead of `full_size`.
 
 **Keys go to a named window, or better, to a named element.** `type_text` and `key` need `window` (its id or
 title) or `element` (an id from `find`). With `element`, that element is given the keyboard first, so the keys go

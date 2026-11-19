@@ -73,6 +73,12 @@ impl Rect {
     }
 }
 
+/// What Claude's models take in without shrinking a picture is 2576 pixels on the longer side and 3.75 million
+/// in all; past that the model's positions stop matching the picture's pixels. A screenshot the caller doesn't size
+/// is kept to a 1080p screen's worth of pixels, Anthropic's advice for driving a desktop: about 2,800 tokens.
+pub const MODEL_PIXELS: u64 = 1920 * 1080;
+pub const MODEL_SIDE: u32 = 2576;
+
 /// A picture, three bytes a pixel: red, green, blue.
 pub struct Image {
     pub width: u32,
@@ -110,11 +116,22 @@ impl Image {
         Image { width, height, rgb }
     }
 
+    /// The widest a picture of this size can be and still reach a model unshrunk: at most `MODEL_PIXELS` in all
+    /// and `MODEL_SIDE` on its longer side. A smaller picture keeps its width.
+    pub fn width_for_model(&self) -> u32 {
+        let (width, height) = (f64::from(self.width), f64::from(self.height));
+        let scale = (MODEL_PIXELS as f64 / (width * height)).sqrt().min(f64::from(MODEL_SIDE) / width.max(height)).min(1.0);
+        ((width * scale).floor() as u32).max(1)
+    }
+
+    /// Fast compression: a tenth of the time of the default for a little more bytes, and a model counts pixels,
+    /// not bytes.
     pub fn to_png(&self) -> Result<Vec<u8>> {
         let mut bytes = Vec::new();
         let mut encoder = png::Encoder::new(&mut bytes, self.width, self.height);
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
+        encoder.set_compression(png::Compression::Fast);
         let mut writer = encoder.write_header().map_err(DesktopError::failed)?;
         writer.write_image_data(&self.rgb).map_err(DesktopError::failed)?;
         writer.finish().map_err(DesktopError::failed)?;
@@ -383,6 +400,20 @@ mod tests {
         let one = image.scaled_to_width(1);
         assert_eq!(one.rgb, [127, 127, 127]);
         assert_eq!(image.scaled_to_width(9).width, 4, "never larger than it was");
+    }
+
+    #[test]
+    fn a_picture_a_model_would_shrink_is_made_small_enough() {
+        let sized = |width, height| Image { width, height, rgb: Vec::new() }.width_for_model();
+        assert_eq!(sized(1920, 1080), 1920, "1080p is kept");
+        assert_eq!(sized(800, 600), 800, "smaller ones too");
+        for (width, height) in [(3440, 1440), (2560, 1600), (3840, 2160), (5120, 1440), (1440, 5120)] {
+            let fitted_width = sized(width, height);
+            let fitted_height = height * fitted_width / width;
+            let (pixels, side) = (u64::from(fitted_width * fitted_height), fitted_width.max(fitted_height));
+            assert!(pixels <= MODEL_PIXELS && side <= MODEL_SIDE, "{width}x{height} became {fitted_width}x{fitted_height}");
+            assert!(pixels * 100 >= MODEL_PIXELS * 99 || side * 100 >= MODEL_SIDE * 99, "{width}x{height} shrunk more than needed");
+        }
     }
 
     #[test]
