@@ -233,7 +233,7 @@ fn windows_lists_the_window_and_focus_brings_it_forward() {
 #[test]
 fn a_screenshot_shows_what_is_on_screen() {
     let (_turn, test, fixture) = start("mc test: picture");
-    let whole = test.tool("screenshot", json!({}));
+    let whole = test.tool("screenshot", json!({"full_size": true}));
     let size = (whole["image_width"].as_u64().unwrap() as u32, whole["image_height"].as_u64().unwrap() as u32);
     assert_eq!((whole["width"].as_u64(), &whole["scale"]), (Some(u64::from(size.0)), &json!(1.0)));
     let (left, top) = (whole["x"].as_i64().unwrap(), whole["y"].as_i64().unwrap());

@@ -152,7 +152,9 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "screenshot",
         description: "A picture of the whole screen, one window or a region, as a PNG. Positions given to click, move, \
-                      drag and scroll afterwards are pixels of this picture. `max_width` shrinks it to save space.",
+                      drag and scroll afterwards are pixels of this picture. A returned picture is kept to about a 1080p \
+                      screen's worth of pixels, what a model sees unshrunk (`scale` says by how much); `full_size` \
+                      keeps every pixel, `max_width` shrinks it further. A region or one window is sharper.",
         schema: || {
             object(
                 json!({
@@ -160,6 +162,7 @@ pub const TOOLS: &[Tool] = &[
                     "region": {"type": "object", "description": "x, y, width, height in desktop pixels.",
                                "properties": {"x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number"}, "height": {"type": "number"}}},
                     "max_width": {"type": "integer", "description": "Shrink the picture to at most this many pixels wide."},
+                    "full_size": {"type": "boolean", "description": "Every pixel, however large. Pictures saved with save_to are always full size."},
                     "save_to": {"type": "string", "description": "Write the PNG to this path on the machine instead of returning it."}
                 }),
                 &[],

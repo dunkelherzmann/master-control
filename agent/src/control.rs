@@ -325,9 +325,12 @@ pub fn screenshot(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     };
     let area = wanted.clip(&bounds).ok_or_else(|| ToolError::bad("that area is off the screen"))?;
     let full = desktop.capture(area)?;
+    let save_to = text(args, "save_to")?;
     let image = match number(args, "max_width")? {
         Some(0) => return Err(ToolError::bad("max_width must be more than zero")),
         Some(max) => full.scaled_to_width(max.min(u64::from(u32::MAX)) as u32),
+        // A picture for a model is kept to what the model sees unshrunk, so its positions stay this picture's pixels.
+        None if save_to.is_none() && !crate::tools::flag(args, "full_size")? => full.scaled_to_width(full.width_for_model()),
         None => full,
     };
     let scale = f64::from(image.width) / f64::from(area.width);
@@ -345,7 +348,7 @@ pub fn screenshot(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     if let Some(window) = shown {
         answer["window"] = window_json(&window);
     }
-    match text(args, "save_to")? {
+    match save_to {
         Some(path) => {
             let path = state::resolve(path);
             crate::tools::write_file(&path, &png)?;
