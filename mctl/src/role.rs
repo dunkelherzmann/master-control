@@ -77,7 +77,8 @@ fn firewall(allow: bool, any_network: bool) -> Vec<String> {
 
 /// Installs what isn't installed yet. Safe to run again: it repairs and updates. Returns what it did, line by line.
 pub fn start(any_network: bool) -> io::Result<Vec<String>> {
-    let mut done = Vec::new();
+    // Linux: what the system lacks for the master to drive its own machine, and admin rights.
+    let mut done = mc_agent::install::system_setup();
     let program = installed_program();
     let current = std::env::current_exe()?;
     if current != program {

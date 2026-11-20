@@ -394,7 +394,7 @@ fn start_registers_with_every_agent_found_and_cleanup_takes_it_out_again() {
     let vs_code = app_data.join("Code").join("User").join("mcp.json");
     std::fs::write(&vs_code, "{\n  // my servers\n  \"servers\": {}\n}\n").unwrap();
     let mctl = |args: &[&str]| {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_mctl")).args(args).env("MC_MASTER_HOME", &home).env("MC_INSTALL_DIR", &install).env("MC_AGENTS_HOME", &user).env_remove("MC_CLAUDE_PROGRAM").output().unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_mctl")).args(args).env("MC_MASTER_HOME", &home).env("MC_INSTALL_DIR", &install).env("MC_AGENTS_HOME", &user).env("MC_NO_SYSTEM_SETUP", "1").env_remove("MC_CLAUDE_PROGRAM").output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         String::from_utf8_lossy(&output.stdout).into_owned()
     };
@@ -529,7 +529,7 @@ fn the_masters_start_and_cleanup_install_and_remove_everything() {
     std::fs::write(&claude, format!("#!/bin/sh\necho \"$@\" >> '{}'\n", asked.display())).unwrap();
     std::fs::set_permissions(&claude, std::fs::Permissions::from_mode(0o755)).unwrap();
     let mctl = |args: &[&str]| {
-        let output = std::process::Command::new(env!("CARGO_BIN_EXE_mctl")).args(args).env("MC_MASTER_HOME", &home).env("MC_INSTALL_DIR", &install).env("MC_CLAUDE_PROGRAM", &claude).env("MC_AGENTS_HOME", &agents_home).output().unwrap();
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_mctl")).args(args).env("MC_MASTER_HOME", &home).env("MC_INSTALL_DIR", &install).env("MC_CLAUDE_PROGRAM", &claude).env("MC_AGENTS_HOME", &agents_home).env("MC_NO_SYSTEM_SETUP", "1").output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         String::from_utf8_lossy(&output.stdout).into_owned()
     };
