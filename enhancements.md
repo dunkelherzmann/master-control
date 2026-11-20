@@ -15,7 +15,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     (2026-11-11); GNOME on Wayland built and tested (2026-11-16); other Wayland desktops still to come
   - [ ] Windows: screen, pointer, keyboard, clipboard and the accessibility tree built and tested (2026-11-11);
     window management, app launch and recording still to come
-  - [ ] macOS
+  - [x] macOS: screen, pointer, keyboard, clipboard and the accessibility tree built and tested on the master's
+    own machine (2026-11-11; in 0.2)
   - [ ] Android
 - [ ] 2026-11-11: **Watch everything the target app does** (all platforms). Constantly monitor, check, scan and trace
   the app's kernel calls, reads and writes, memory, storage, inbound and outbound network, logs, the Windows
@@ -53,7 +54,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-11: **Windows equivalents of the Linux-only observation** (Windows), worked out with craft-and-rea from
   the Linux tracer, Fibratus and the Windows machine's event layouts: command lines, memory events, results and
   real byte counts of file operations. What Windows can't tell is listed in `pending.md`. Spec §4.3.
-- [ ] 2026-11-11: **Master and workers** (all platforms). The controller works as master and workers: the master is the
+- [x] 2026-11-11: **Master and workers** (all platforms). The controller works as master and workers: the master is the
   one machine the AI agent runs on and is signed in to (this Mac); each worker finds its way to the master over the
   local network and makes itself available to it. Claude, Codex or Antigravity is run and signed in on the master
   only, and its agents still work on the workers as they do now, with fewer hoops. Before the controller is built.
@@ -62,7 +63,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   Mac is connected to the master (2026-11-11).
   - [x] Linux: worker installed, paired
   - [x] Windows: worker installed, paired
-  - [ ] macOS: the Mac is the master; a macOS worker and its install are not built
+  - [x] macOS: a macOS worker and its install are built and tested (see "A Mac as a worker"); not installed
+    here, since this Mac is the master
 - [x] 2026-11-11: **The master controls itself too** (all platforms). The master exposes the same access to its own machine
   as to a worker, on top of coordinating and controlling the workers: master = full control of itself and of its
   workers; worker = full control of itself by its master.
@@ -107,7 +109,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-11: **Identify every machine by host name + OS release + MAC address** (all platforms): each computer
   running Master Control, master or worker, is told apart by the combination of the three. Built for Linux,
   Windows and macOS (2026-11-11). Spec §5.
-- [ ] 2026-11-11: **A Mac as a worker** (macOS). Asked after "why can't Macs be workers yet?".
+- [x] 2026-11-11: **A Mac as a worker** (macOS). Asked after "why can't Macs be workers yet?".
   - [x] Commands and files: the worker's start-up install and removal (2026-11-11)
   - [x] Screen, keyboard, mouse and the accessibility tree: pictures, windows, pointer, keyboard and clipboard
     built (2026-11-11); clicks, typing and keys verified on the Mac on the app's own window; the accessibility
@@ -115,7 +117,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Observation: a started command and everything it starts: programs, files, network ports, services,
     exits and crashes, with guards and a verdict, without administrator rights (2026-11-11). Less detail than
     Linux and Windows; what is missing is in `pending.md`
-- [ ] 2026-11-11: **Versioning and an About panel** (all platforms): add versioning to Master Control and show its
+- [x] 2026-11-11: **Versioning and an About panel** (all platforms): add versioning to Master Control and show its
   info the way Herb's Terminal's About window does: the icon, the name, "Version 1.0.245 (1.0.245)", a one-line
   description, "By dunkelherzmann" and the link to the GitHub project.
   Built (2026-11-11): a `VERSION` file (0.1) and `scripts/version.sh`, as in Herb's Terminal; every program and

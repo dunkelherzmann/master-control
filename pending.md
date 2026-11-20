@@ -200,12 +200,14 @@ Instruments from their vendors' pages only.
 - [ ] Make chosen calls fail on purpose during a test (a full disk, a refused connection, a denied permission), as
   strace does, to check how the app copes.
 - [ ] Pause the target at a chosen call and let the agent change its arguments or result, as API Monitor does.
+- [ ] Faster Linux screenshots: GNOME Shell spends about 0.57 s of each one writing a PNG for our extension
+  (measured 2026-11-20). Handing over raw pixels instead would need a changed extension, which loads at sign-in.
 
 ## Versioning and About (2026-11-11)
 
 - The version is `VERSION` (major.minor) plus the commits since that file last changed; `scripts/version.sh` prints
   it and `core/build.rs` builds it in. A build from a copy without git history (what `scripts/check.sh` sends to
-  Linux and Windows) gets patch 0 unless `MC_VERSION` is set: the build-and-place script for all three has to pass it.
+  Linux and Windows) gets patch 0 unless `MC_VERSION` is set: `scripts/place.sh` passes it.
 - The About link points to github.com/dunkelherzmann/master-control, public since 2026-11-12.
 - Not done: the version in the Windows program's file properties; an About entry in a window menu on Linux and
   Windows (there it is the "About" link in the header); a licence line in the About screen (the `LICENSE` file is there since 0.2).
@@ -237,8 +239,8 @@ In the order suggested. Each names where the idea was seen (spec §7).
    tried (not Electron, browsers, SwiftUI or Catalyst; Cua Driver needs private window-server calls for
    those); Windows and Linux don't have it.
 3. [x] Several actions in one call (built 2026-11-11 as `batch`). Open: no pause step (use `wait_for`); a
-   screenshot inside a batch comes back whole in the answer, which can be large; how much time a batch saves
-   over separate calls wasn't measured.
+   screenshot inside a batch comes back in the answer (kept to about 1080p since 0.2.16, unless `full_size`);
+   how much time a batch saves over separate calls wasn't measured.
 4. [x] Attaching to a running program and filters (built 2026-11-11: `pid`, `classes`, `include`, `exclude`).
    Open: the filters drop events after the recorder has decoded them, so they save storage and reading, not
    the cost of tracing (Linux still stops the target at every system call); a running program's output isn't
@@ -271,7 +273,8 @@ In the order suggested. Each names where the idea was seen (spec §7).
 7. Network content: DNS names, real addresses on macOS, and one program's decrypted traffic through a local
    proxy (Fibratus, mitmproxy's local mode).
 8. A published table of which action works on which system and toolkit, proven by small fixture apps (Cua Driver).
-9. Wayland (Cua Driver uses libei and the compositors' screen copy).
+9. Wayland (Cua Driver uses libei and the compositors' screen copy). GNOME built 2026-11-16 (#11, #12) through a
+   shell extension of ours; KDE Plasma and wlroots still open (see "To prove").
 10. Windows and apps: start and close an app, move, resize, minimize, several displays, notifications.
 11. Android, first through plain adb (mobile-mcp), later a pushed server (scrcpy).
 12. Smaller ones: a zoom action for dense screens (Anthropic's computer tool), the contents of files a program
