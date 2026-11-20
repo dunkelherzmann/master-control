@@ -19,6 +19,8 @@ Master Control agent
                                            Install this program as a worker that starts with the desktop session and
                                            has admin rights (Windows: run from an elevated prompt). On Windows the
                                            master is let in from private networks; --any-network adds public ones
+  mc-agent setup                           Linux: only put on the system what the program needs (packages, the sudo
+                                           rule for admin rights); start does this first
   mc-agent cleanup [--home DIR]            Remove all of it: the worker, its start-up entry, its firewall rule, and its
                                            folder with the pairing, token, logs and recorded sessions
   mc-agent mcp [--home DIR]                Serve MCP on stdin and stdout
@@ -107,6 +109,10 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
         "pair" => pair(&home, &pair_words),
         "unpair" => crate::worker::unpair(&home),
         "start" => crate::install::install(worker.as_ref().and_then(|worker| worker.name.as_deref()), any_network).map(|done| done.iter().for_each(|line| println!("{line}"))),
+        "setup" => {
+            crate::install::system_setup().iter().for_each(|line| println!("{line}"));
+            Ok(())
+        }
         "cleanup" => crate::install::uninstall().map(|mut done| {
             if std::fs::remove_dir_all(&home).is_ok() {
                 done.retain(|line| line != "nothing was installed");
