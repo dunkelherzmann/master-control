@@ -246,11 +246,11 @@ struct Need {
 }
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const SUDO: Need = Need { what: "sudo, for admin rights", packages: ["sudo"; 4] };
+const SUDO: Need = Need { what: "sudo (for admin rights)", packages: ["sudo"; 4] };
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const ACCESSIBILITY_BUS: Need = Need { what: "the accessibility bus, for what is inside windows", packages: ["at-spi2-core"; 4] };
+const ACCESSIBILITY_BUS: Need = Need { what: "the accessibility bus (for what is inside windows)", packages: ["at-spi2-core"; 4] };
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-const GSETTINGS: Need = Need { what: "gsettings, to switch on the GNOME Shell extension", packages: ["libglib2.0-bin", "glib2", "glib2", "glib2-tools"] };
+const GSETTINGS: Need = Need { what: "gsettings (to switch on the GNOME Shell extension)", packages: ["libglib2.0-bin", "glib2", "glib2", "glib2-tools"] };
 
 /// The package managers, in the order of `Need::packages`, with the command that installs without asking.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -330,7 +330,7 @@ pub fn system_setup() -> Vec<String> {
         if !missing.is_empty() && manager.is_none() {
             done.push(format!(
                 "this system's package manager isn't one Master Control knows (apt, dnf, pacman, zypper): install {} yourself",
-                missing.iter().map(|need| need.what).collect::<Vec<_>>().join(", ")
+                missing.iter().map(|need| need.what).collect::<Vec<_>>().join("; ")
             ));
         }
         let Some(script) = root_script(&missing, manager, rule_for) else {
@@ -350,9 +350,9 @@ pub fn system_setup() -> Vec<String> {
         } else {
             None
         };
-        let what = missing.iter().map(|need| need.what).chain(rule_for.map(|_| "admin rights without a password (a sudo rule)")).collect::<Vec<_>>().join(", ");
+        let what = missing.iter().map(|need| need.what).chain(rule_for.map(|_| "a sudo rule (admin rights without a password)")).collect::<Vec<_>>().join("; ");
         match ran {
-            Some((how, Ok(()))) => done.push(format!("set up {what}, {how}")),
+            Some((how, Ok(()))) => done.push(format!("set up, {how}: {what}")),
             Some((_, Err(error))) => done.push(format!("could NOT set up {what} ({error}); as root, run:\n{script}")),
             None => done.push(format!("{what} still to set up: as root, run:\n{script}")),
         }
