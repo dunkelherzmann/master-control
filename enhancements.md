@@ -224,7 +224,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-20: **One universal Linux program** (Linux): the Linux package stays one self-contained, runnable
   binary that needs no installing, and when run and set up it installs what the system needs. It decides by itself
   whether the session is Xorg or Wayland, all inside the same binary.
-  Shipped in 0.2.19 (#19, #20): the static program is the window, the master and the worker (the Linux worker now runs
+  Shipped in 0.2.19 (#19) and 0.2.20 (#20): the static program is the window, the master and the worker (the Linux worker now runs
   from it); Start, or `master-control agent setup` alone, installs the accessibility bus, sudo and gsettings through
   apt, dnf, pacman or zypper, and the sudo rule, asking for the password once (sudo, the desktop's prompt, or the
   terminal). Tried in a fresh Ubuntu 24.04 container as root, as a user without sudo and with a password-asking sudo.
