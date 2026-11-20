@@ -13,7 +13,7 @@ LAN addresses, local paths or pictures of real desktops; the machines' ssh names
 
 An installable agent serving an HTTP API and MCP so coding agents can see and drive a machine (screen,
 keyboard, mouse) and observe everything a target app does (syscalls, files, registry, memory, network, logs),
-on Android, Linux, Windows and macOS. Rust core; it productises the `master-control` skill.
+on Linux, Windows and macOS. Rust core; it productises the `master-control` skill.
 
 - **`AGENT-GUIDE.md`** is for agents that use Master Control (this file is for working on it). It is built into
   `mctl`; a test fails when it doesn't name a tool, so a new tool gets a line there in the same change.
@@ -35,7 +35,8 @@ on Android, Linux, Windows and macOS. Rust core; it productises the `master-cont
   leaves helpers and imports unused elsewhere, which only that system's lint shows.
 - Linux GUI tests use Xvfb (they set `DISPLAY` and clear `WAYLAND_DISPLAY`, which picks the X11 backend).
   Windows GUI tests must run in the desktop session (`mctl exec --cwd`): ssh alone has no screen.
-- `macos/scripts/build.sh` makes `dist/Master Control.app`; the Linux file is the static musl build.
+- `macos/scripts/build.sh` makes `dist/Master Control.app`; the Linux file is the static musl build, and the Linux
+  worker is that same file (`master-control agent start`); there is no separate Linux `mc-agent` to ship.
 - `scripts/place.sh [mac linux windows]` builds the last commit and installs it on all three (master, apps,
   workers), and fails unless every copy then reports the new version. Use it instead of doing those steps by hand.
 - **Installed copies:** `/Applications` on the Mac, the desktop on Linux and Windows. Workers: Linux (service

@@ -2,13 +2,12 @@
 
 Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with version and PR).
 
-- [ ] 2026-11-11: **Master Control, the app** (Android, Linux, Windows, macOS). An installable app that serves an
+- [ ] 2026-11-11: **Master Control, the app** (Linux, Windows, macOS). An installable app that serves an
   API and MCP endpoint so Claude Code and other coding agents can control a virtual or physical machine, for coding,
   testing and QA of apps written with agentic coders.
   - [ ] Linux
   - [ ] Windows
   - [ ] macOS
-  - [ ] Android
 - [ ] 2026-11-11: **See and drive the machine** (all platforms). The agent sees the monitor and controls the keyboard
   and mouse as if a user sat in front of the computer. Spec §3.
   - [ ] Linux: screen, pointer, keyboard, clipboard and the accessibility tree on X11 built and tested
@@ -17,7 +16,6 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     window management, app launch and recording still to come
   - [x] macOS: screen, pointer, keyboard, clipboard and the accessibility tree built and tested on the master's
     own machine (2026-11-11; in 0.2)
-  - [ ] Android
 - [ ] 2026-11-11: **Watch everything the target app does** (all platforms). Constantly monitor, check, scan and trace
   the app's kernel calls, reads and writes, memory, storage, inbound and outbound network, logs, the Windows
   registry, and everything else it does in the foreground and background, so the agent can code and troubleshoot on
@@ -31,7 +29,6 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     system calls and attaching still to come. With admin rights (2026-11-11) processes and files come from the
     system's own events, with arguments, renames and a count of lost events, and a program with its own sandbox
     can be watched (`self_sandboxed`)
-  - [ ] Android
 - [x] 2026-11-11: **Study similar apps** with craft-and-rea to get the spec information: apps that cover the
   functionality partly or in full. Spec §7; evidence in `.investigation/` (untracked).
 - [x] 2026-11-11: **Trackers on disk**: `bugs.md`, `enhancements.md`, `pending.md` and `specs.md` in the project
@@ -220,3 +217,11 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   (the Mac's 3440x1440 and Windows' 2560x1600 screens were over the limit). `full_size` keeps every pixel. PNGs are
   written with fast compression, about a tenth of the time. Shipped in 0.2.16 (#16): a default screenshot now takes 211 ms on the Mac (was 293), 618 ms on
   Linux (was 929) and 229 ms on Windows (was 882).
+
+- [ ] 2026-11-20: **No Android** (all platforms): Android is removed entirely: we won't work on it now nor in the
+  near future. Taken out of the spec, the trackers, the pending list and the README.
+
+- [ ] 2026-11-20: **One universal Linux program** (Linux): the Linux package stays one self-contained, runnable
+  binary that needs no installing, and when run and set up it installs what the system needs. It decides by itself
+  whether the session is Xorg or Wayland, all inside the same binary.
+

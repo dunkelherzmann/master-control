@@ -4,14 +4,13 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 
 ## Decisions for Herbert
 
-- [ ] **Linux packaging for the app.** A Flatpak's sandbox is at odds with tracing, input and services. Tried
-  2026-11-11: the agent and the master build as fully static programs (musl; 6.5 MB and 8 MB, no shared libraries)
-  and run. Proposed: one static program for Linux, its set-up window drawn by the program itself over X11.
+- [x] **Linux packaging for the app.** Decided 2026-11-20: one static program (musl) that runs without installing,
+  is the window, the master and the worker, picks X11 or GNOME on Wayland by itself, and on Start installs what the
+  system lacks. A Flatpak's sandbox is at odds with tracing, input and services.
 
-- [x] **Language.** Rust for the agent, helper and controller (decided 2026-11-11), with a small Java server for
-  Android pushed over adb where the platform requires it.
+- [x] **Language.** Rust for the agent, helper and controller (decided 2026-11-11).
 - [ ] **First platform.** Proposed: Linux and Windows first, since the prototype skill already runs there and those
-  machines are free for testing; then macOS; then Android.
+  machines are free for testing; then macOS.
 - [x] **GitHub repository.** Work stays local; nothing goes to GitHub until a functional, tested prototype is ready
   (decided 2026-11-11). Published 2026-11-12 at his request as `dunkelherzmann/master-control`, public, with a
   fresh history starting at 0.2.
@@ -23,9 +22,6 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 
 - [ ] macOS: which Endpoint Security events an unpaid-signed tool can receive; whether the stock `eslogger` as root
   covers the need; what System Integrity Protection blocks. Spec §4.3
-- [ ] Android: what can be observed of a release build on an unrooted phone, against a debuggable build and a rooted
-  emulator. Known from Perfetto's and Frida's source: debuggable or profileable builds allow heap profiling and
-  in-process instrumentation without root; the release-build case is still open. Spec §4.3
 - [ ] Memory: whether whole-program read and write tracing is usable anywhere, or only watched ranges. Spec §4.2
 - [ ] Windows: what the ETW system-call flag gives on Windows 11, and whether API hooking is needed for arguments.
   Spec §4.3
@@ -179,9 +175,8 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
     sessions take about half a second longer to start; its format is not promised by Apple. Root is there now: Herbert installed the sudo rule on the Mac
     (2026-11-11), `exec` with `elevated` answers as root, and `sudo eslogger exec` delivered events from this
     session with no further permission asked. Reading it into sessions is not built
-11. [ ] Android bridge: control, then observation
-12. [ ] Wayland: GNOME done; other desktops to come
-13. [ ] Agentless back ends
+11. [ ] Wayland: GNOME done; other desktops to come
+12. [ ] Agentless back ends
 
 ## Reference study: what is left
 
@@ -276,8 +271,7 @@ In the order suggested. Each names where the idea was seen (spec §7).
 9. Wayland (Cua Driver uses libei and the compositors' screen copy). GNOME built 2026-11-16 (#11, #12) through a
    shell extension of ours; KDE Plasma and wlroots still open (see "To prove").
 10. Windows and apps: start and close an app, move, resize, minimize, several displays, notifications.
-11. Android, first through plain adb (mobile-mcp), later a pushed server (scrcpy).
-12. Smaller ones: a zoom action for dense screens (Anthropic's computer tool), the contents of files a program
+11. Smaller ones: a zoom action for dense screens (Anthropic's computer tool), the contents of files a program
     wrote (Tracee), making chosen calls fail to test error paths (strace), per-app permission levels as an
     optional guard.
 - [x] A script that builds and places a commit on all three machines and proves it: `scripts/place.sh`

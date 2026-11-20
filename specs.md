@@ -27,7 +27,7 @@ promised are marked **to prove**.
    follow this live, search it afterwards, and get a verdict at the end of a run.
 3. **One interface** for both, the same on every platform: an MCP server, an HTTP API and a command-line tool.
 
-Machines it works on: Linux, Windows, macOS and Android; real hardware and virtual machines.
+Machines it works on: Linux, Windows and macOS; real hardware and virtual machines.
 
 ## 2. Parts
 
@@ -36,7 +36,6 @@ Machines it works on: Linux, Windows, macOS and Android; real hardware and virtu
 | **Agent** | the machine under test | One self-contained program per platform, running in the signed-in desktop session. Does the capture, input, tracing and storage. Serves the HTTP API and MCP on the loopback interface, protected by a token. A small elevated helper does the work that needs admin or root (kernel tracing, packet capture). |
 | **Master** (`mctl`) | the one machine the AI agent runs on and is signed in to | Command-line tool and stdio MCP server. Has full control of itself and of its workers: it finds workers on the local network, pairs with them, and gives the AI agent one tool set with a `machine` argument, where `master` is the master's own machine and the other names are workers. Nothing is signed in on the workers. |
 | **Worker** | every other machine | The agent started with `--worker`: it listens on the network for its one master and announces itself every two seconds. Its master has full control of it; nobody else has any. |
-| **Android bridge** | the controller or any machine with the phone attached | Drives a phone or emulator over adb. Nothing is installed on the device: a small server is pushed and started through the shell for each session. |
 | **Agentless back ends** | the controller or the VM host | For machines that can't run an agent (an installer screen, a crashed OS, a locked-down device): a VM's display and input through its hypervisor, or a physical machine through a KVM-over-IP device. Control only, plus whatever the hypervisor can observe. |
 
 The agent on a machine can also be used directly by a coding agent running on that same machine, with no controller.
@@ -60,7 +59,6 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | `click`, `type_text`, `key` with `background` (macOS) | The same three tools, leaving the pointer, the real keyboard and the window order alone. A click presses what is at the point (it, or the nearest thing around it that can be pressed) or gives a text field the keyboard, through AX. Text and keys are key events handed to the window's app only (`CGEventPostToPid`); the window is first made the app's own main window, which does not bring the app forward. A shortcut with Command chooses the menu item that has it, because the key events themselves reach a background app only some of the time. Double, right and middle clicks, drags and scrolling refuse `background`. Other systems answer `not_supported` |
 | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll` | Pointer actions at screen coordinates or on an element id |
 | `type_text`, `key` | Text and key chords, sent only once the named target window has the focus |
-| `touch` (Android) | Tap, long press, swipe, pinch; the hardware buttons |
 | `focus`, `move_window`, `close_window` | Window management |
 | `clipboard_get`, `clipboard_set` | Clipboard, saved and restored around a test on request |
 | `exec`, `job`, `jobs`, `kill` | Run a command (optionally elevated), follow a long one, stop it |
@@ -103,7 +101,6 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | **Linux, other Wayland desktops** | not built | not built | AT-SPI |
 | **Windows** | GDI today; Windows.Graphics.Capture for windows that GDI can't see | SendInput in the desktop session, text as Unicode | UI Automation |
 | **macOS** | the system's own `screencapture`, for the rectangle asked for | Core Graphics events; text as the characters themselves; a second click soon after the first is sent as a double click | Accessibility (AX), for the window with the same title among its app's windows. Windows come from the window server's list |
-| **Android** | pushed server: encoded screen stream or `screencap` | pushed server: input injection, or `input` commands as fallback | `uiautomator` hierarchy |
 | **VM, agentless** | the hypervisor's display (VNC or its own API) | the hypervisor's input channel | none (pictures only) |
 
 On GNOME under Wayland, other programs get no window list, no picture of the screen and no input, and GNOME Shell
@@ -120,7 +117,7 @@ Permissions the user grants once: on macOS Screen Recording (pictures, and other
 Accessibility (input, raising windows) for the agent, in System Settings; until then the tools that need one say
 which, and `status` lists what is still needed. On macOS positions are in points, and a picture of a dense
 display has more pixels than points, which the tools account for; on Windows the agent
-starts at sign-in with highest privileges; on Linux the helper gets root; on Android USB debugging.
+starts at sign-in with highest privileges; on Linux the helper gets root.
 
 ## 4. Observation
 
@@ -157,9 +154,9 @@ Events go into one SQLite database per session, next to the session's captured c
 | **process** | Start, exit and exit code of the target and every child; command lines, environment, parent, user, privilege |
 | **thread, module** | Threads created and ended; libraries and drivers loaded |
 | **syscall** | Each system call with decoded arguments and result, filterable by call, group (file, network, process, memory, ipc), path or descriptor; off, summarised (counts, errors, time per call) or full per session |
-| **api** | Calls into the platform's libraries above the kernel (Windows API and COM, libc, Objective-C and Swift runtime, Java and ART on Android) with decoded arguments, buffers, return values and error codes, for the functions the agent chooses; needs instrumentation inside the target (§4.3) |
+| **api** | Calls into the platform's libraries above the kernel (Windows API and COM, libc, Objective-C and Swift runtime) with decoded arguments, buffers, return values and error codes, for the functions the agent chooses; needs instrumentation inside the target (§4.3) |
 | **file** | Open, create, read, write, rename, delete, attribute and permission changes; sizes and offsets; contents on request |
-| **registry / settings** | Windows registry opens, reads, writes and deletes; on macOS preference domains; on Linux dconf/GSettings and config files; on Android settings and shared preferences |
+| **registry / settings** | Windows registry opens, reads, writes and deletes; on macOS preference domains; on Linux dconf/GSettings and config files |
 | **memory** | Allocations, mappings, protection changes, growth over time, leaks suspected; reads and writes of watched ranges; dumps |
 | **network** | DNS lookups; TCP and UDP connections in and out with byte counts; listening sockets; packets (pcap) and decrypted HTTP(S) on request |
 | **ipc** | Pipes, local sockets, D-Bus, COM/RPC, XPC, binder, where the platform can show them |
@@ -179,17 +176,15 @@ access tracing is offered only where instrumentation makes it workable (**to pro
 | **Linux** | eBPF programs loaded by the root helper (syscalls, files, processes, sockets, memory calls), with stacks, built to run across kernels (CO-RE). Not built yet: today's source is the one in the next column | ptrace-based tracing of the user's own processes, with no root: every system call of the target's tree is seen and decoded, at the cost of slowing the target; `/proc` for snapshots; systemd-coredump for crashes; journald |
 | **Windows** | ETW. Built: one real-time session carrying the kernel's process, file, registry and network providers and, in system-logger mode, its older process and memory events (which have the command line and the allocations the newer ones lack), read in the tracer itself; a file event is held until the event that ends its operation arrives, and filed with the result and the bytes really moved; other programs' events are dropped by process id before they are decoded. Registry keys are named by following each key back through the parent it was opened under. Windows doesn't say whether a file was opened to read or to write, only whether it was made, replaced or opened; a started program has a command line, not a list of arguments. To come: threads, images, stack walks, DNS, audit-API; system calls by name are not available from these events | In-process API hooking for call arguments ETW doesn't give (**to prove** what the syscall flag alone gives); Windows Error Reporting dumps; Event Log; debug output |
 | **macOS** | Built, and needing no administrator rights: the target runs under a sandbox profile that forbids nothing and asks the system to report what it allows: programs started, files opened to read, made, written and removed, network connections and listening ports, services looked up. It reports these for the target and everything it starts, system programs included. The reports come through the system log (`log stream`) with the pid that did each thing; exits and how each process ended come from the kernel's process events (kqueue), arguments from the process table. This source doesn't give byte counts, failed calls, the address behind a connection (only its port), a rename as one event (the old name goes, the new one comes) or system calls (`syscalls: full` is refused). A target that sets up a sandbox of its own (a browser, an App Sandbox app, `sandbox-exec`) is refused it by the system inside this one, so it can't be watched this way. Measured on macOS 27.2: 2,000 file creations in a row all arrived; with several programs writing thousands of files at once the live log lost between a tenth and a sixth of the reports, and says nothing when it does | Built, used when this user may become root unasked (sudo without a password): processes and files come from Endpoint Security events, read from `eslogger`: every start with its parent and arguments, every exit with how it ended, files read, made, written (told when a written file is closed), renamed (as one event), removed, truncated, linked and re-moded, Unix-socket connections. The events are numbered, so the session's state says how many were lost (`events_lost`) and which source it used (`source`). The sandbox's reports then only add network ports and services; with `self_sandboxed` the sandbox is left out, the target runs as it is, and no network is recorded. `eslogger`'s output is not a promised format and may change with macOS. To come: addresses and bytes of connections, `fs_usage`-class tracing, the unified log, `sample`/`vmmap`/`leaks`, crash reports |
-| **Android** | adb: logcat, `dumpsys`, Perfetto traces (scheduling, syscalls, memory counters, logs), `run-as` for debuggable builds | Heap profiling and in-process instrumentation for builds marked debuggable or profileable, which is what an app under development is; full syscall and file tracing on an emulator or rooted device. For a release build on an ordinary phone, less is visible (**to prove** how much) |
 | **VM, agentless** | whatever the hypervisor exposes; introspection where it exists | none promised |
 
 Instrumentation inside the target, for the **api** class, watched memory and call arguments the kernel sources
 don't give, gets in one of three ways: injected into the running process by the helper (needs the same rights a
-debugger needs), loaded by the app itself as a library in a test build, or on Android attached to a build marked
-debuggable. It is off unless a session asks for it, because it changes the process it watches.
+debugger needs), or loaded by the app itself as a library in a test build. It is off unless a session asks for it, because it changes the process it watches.
 
 Network, on every platform: connections and DNS come from the tracing source above; packets from a capture limited
-to the target's processes; decrypted HTTPS from a local intercepting proxy scoped to the target (per-process capture
-on desktop, a local VPN on Android), with the test certificate installed only for the test.
+to the target's processes; decrypted HTTPS from a local intercepting proxy scoped to the target (per-process capture),
+with the test certificate installed only for the test.
 
 ### 4.4 Guards, baselines and the verdict
 
@@ -300,15 +295,17 @@ Windows a guard can be a registry key (`HKCU\Software\App`); names there match w
 
 The agent, helper and controller are written in Rust. Installing gives Master Control admin rights once, so nothing it does later needs a password or an elevation
 prompt. `mc-agent start` copies the program into place and starts it as a worker with the desktop session:
-on Linux a systemd user service, with admin rights through sudo (the install says what to add if sudo asks this
-user for a password); on macOS a launch agent in the desktop session that launchd keeps running, with admin rights
+on Linux a systemd user service, with admin rights through sudo: the install first puts on the system what the
+program can't carry (the accessibility bus, sudo, gsettings, through apt, dnf, pacman or zypper) and the sudo rule,
+as root through sudo, the desktop's password prompt (pkexec) or sudo in the terminal; on macOS a launch agent in the desktop session that launchd keeps running, with admin rights
 through sudo in the same way (a Mac worker does commands, files, screen, input, the accessibility tree and observation); on Windows a scheduled task at sign-in with highest privileges and no window, plus a
 firewall rule that lets the master reach the worker's port on private networks only, or with `--any-network` on
 public ones too (for a machine whose network Windows has marked Public). `mc-agent cleanup` undoes
 it and removes the worker's folder. `exec` takes `elevated` to run a command with admin rights. On macOS a worker that listens on the network makes the system's own firewall ask once whether to let it; that
 answer is the user's. One self-contained program per platform, nothing else to install: a portable `.exe` on Windows, a signed app bundle
-on macOS, a single binary with a user service on Linux (the agent needs the real session and the kernel, so it is not
-a Flatpak). Android needs only adb on the controlling machine. `mctl install <machine>` puts the agent on a machine
+on macOS, on Linux one static binary (musl) that needs no installing and is the window, the master and the worker at once; it
+tells an X11 session from GNOME on Wayland on its own (the agent needs the real session and the kernel, so it is not
+a Flatpak). `mctl install <machine>` puts the agent on a machine
 over SSH and starts it.
 
 | Platform | Minimum, to be confirmed while building |
@@ -316,7 +313,6 @@ over SSH and starts it.
 | Linux | A kernel with BTF and eBPF CO-RE; X11 and Wayland sessions |
 | Windows | Windows 10 and 11, x64 and ARM64 |
 | macOS | macOS 15 and later, Apple silicon |
-| Android | Android 10 and later; emulator, rooted and unrooted devices, with what each can show |
 
 ## 7. Reference apps
 
@@ -328,8 +324,6 @@ with its own code.
 |---|---|
 | Cua Driver (trycua/cua, MIT) | One program serving MCP and a CLI; each platform's own capture, input and accessibility stack; every action answered as delivered, refused with a reason, or unsupported |
 | Windows-MCP (MIT) | A Windows tool set over stdio and HTTP: UI Automation tree, input, shell, registry, processes |
-| scrcpy (Apache-2.0) | Android control with nothing installed: a server pushed over adb and started through the shell, a tunnel, injected input, an encoded screen stream |
-| mobile-mcp (Apache-2.0) | The tool list a phone needs; plain adb as the simple route |
 | PiKVM (GPL-3.0) | A physical machine with no software on it: HDMI capture, USB HID gadget, virtual media, power control |
 | Anthropic computer-use demo (MIT) | The action set models are trained to use for screens |
 | Fibratus (Windows) | What ETW gives: process, thread, image, file, registry, network, memory, DNS and API events with call stacks; filters and rules over them |
@@ -338,11 +332,10 @@ with its own code.
 | CAPE Sandbox | An agent inside the guest plus API hooking, ETW, TLS keys, screenshots; one behaviour report per run |
 | DRAKVUF | The same kinds of events from the hypervisor, with no agent in the guest |
 | mitmproxy (MIT) | Capturing one process's traffic on the same machine, decrypted |
-| PCAPdroid (GPL-3.0) | Per-app capture on Android without root through a local VPN |
 | Objective-See ProcessMonitor (GPL-3.0) | macOS Endpoint Security as the event source |
-| Frida | The three ways into a process (injection, a library the app loads, a debuggable Android build) and what is possible inside: function hooks, following a thread instruction by instruction, a per-page memory access monitor |
+| Frida | The three ways into a process (injection, a library the app loads, a debugger's attach) and what is possible inside: function hooks, following a thread instruction by instruction, a per-page memory access monitor |
 | strace (LGPL) | Tracing without root; filters by call group, path and descriptor; dumping the data read and written; a summary of counts, errors and time; making chosen calls fail |
-| Perfetto (Apache-2.0) | Android and Linux tracing started over adb from a config, with named data sources and SQL over the result; what a release build allows |
+| Perfetto (Apache-2.0) | Linux tracing started from a config, with named data sources and SQL over the result; what a release build allows |
 | Sysmon for Linux (MIT) and Sysmon | A fixed, documented list of event types with include and exclude rules per type; eBPF that adapts to the kernel it finds |
 | Process Monitor (documentation, and run on Windows 11) | The everyday view to match: file, registry and process activity live, a stack per operation, filters that hide without discarding, a log that can be reopened, logging from boot. Each event as time, process, operation, path, result and a readable detail line; run and exported from the command line |
 | API Monitor (documentation and its definition files; not run) | API and COM calls decoded from definition files: parameters, structures, buffers sized from other arguments, error codes, call tree. A definition per library that names each call's parameters, types, flags, success value and error decoding |

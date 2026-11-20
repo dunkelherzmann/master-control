@@ -1,9 +1,10 @@
 //! Installing the agent as a worker that starts with the user's desktop session and has admin rights (specs.md §6).
 //!
-//! - Linux: a systemd user service tied to the graphical session. Admin rights come from sudo: the install checks
-//!   that the user can use it without a password and says what to add if not.
+//! - Linux: a systemd user service tied to the graphical session. The install first puts on the system what the
+//!   program can't carry (`system_setup`): missing packages and a sudo rule for admin rights, asking for the password
+//!   once.
 //! - macOS: a launch agent in the user's desktop session, kept running by launchd. Admin rights come from sudo, as
-//!   on Linux. Screen and input are not built for macOS yet; a Mac worker does commands and files.
+//!   on Linux.
 //! - Windows: a scheduled task at sign-in that runs with highest privileges, and a firewall rule that lets the
 //!   master reach the worker's port on private networks. Must be run from an elevated prompt.
 
@@ -136,7 +137,7 @@ fn run(program: &str, args: &[&str]) -> io::Result<()> {
 /// line by line.
 pub fn install(name: Option<&str>, any_network: bool) -> io::Result<Vec<String>> {
     let program = installed_program();
-    let mut done = Vec::new();
+    let mut done = system_setup();
     let current = std::env::current_exe()?;
     if current != program {
         std::fs::create_dir_all(program.parent().expect("a folder"))?;
@@ -170,14 +171,6 @@ pub fn install(name: Option<&str>, any_network: bool) -> io::Result<Vec<String>>
         done.push(format!("installed and started the user service {SERVICE} (starts with the desktop session)"));
         if let Some(note) = gnome_extension()? {
             done.push(note);
-        }
-        if run("sudo", &["-n", "true"]).is_ok() {
-            done.push("admin rights: this user can use sudo without a password, so elevated commands work".into());
-        } else {
-            let user = crate::platform::user();
-            done.push(format!(
-                "admin rights are NOT set up: sudo asks this user for a password. To grant them, as root: echo '{user} ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/master-control && chmod 440 /etc/sudoers.d/master-control"
-            ));
         }
     }
     #[cfg(windows)]
@@ -241,6 +234,132 @@ pub fn install(name: Option<&str>, any_network: bool) -> io::Result<Vec<String>>
     }
     #[allow(unreachable_code)]
     Ok(done)
+}
+
+/// What a Linux desktop has to have that Master Control doesn't carry in its own file, and the package that brings
+/// it with each package manager (apt, dnf, pacman, zypper). The program itself is static and needs no libraries; it
+/// finds out for itself whether the session is X11 or GNOME on Wayland.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+struct Need {
+    what: &'static str,
+    packages: [&'static str; 4],
+}
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SUDO: Need = Need { what: "sudo, for admin rights", packages: ["sudo"; 4] };
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const ACCESSIBILITY_BUS: Need = Need { what: "the accessibility bus, for what is inside windows", packages: ["at-spi2-core"; 4] };
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const GSETTINGS: Need = Need { what: "gsettings, to switch on the GNOME Shell extension", packages: ["libglib2.0-bin", "glib2", "glib2", "glib2-tools"] };
+
+/// The package managers, in the order of `Need::packages`, with the command that installs without asking.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const MANAGERS: [(&str, &str); 4] = [
+    ("apt-get", "DEBIAN_FRONTEND=noninteractive apt-get install -y"),
+    ("dnf", "dnf install -y"),
+    ("pacman", "pacman -S --needed --noconfirm"),
+    ("zypper", "zypper --non-interactive install"),
+];
+
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const SUDO_RULE: &str = "/etc/sudoers.d/master-control";
+
+/// The commands that, run as root, install what is missing and give `user` admin rights without a password; None
+/// when nothing is to be done. `manager` is the index into `MANAGERS` of the one this system has.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn root_script(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>) -> Option<String> {
+    let mut lines = Vec::new();
+    if let (false, Some(manager)) = (missing.is_empty(), manager) {
+        let mut packages: Vec<&str> = missing.iter().map(|need| need.packages[manager]).collect();
+        packages.dedup();
+        if manager == 0 {
+            lines.push("apt-get update -q".to_string());
+        }
+        lines.push(format!("{} {}", MANAGERS[manager].1, packages.join(" ")));
+    }
+    if let Some(user) = rule_for {
+        // Checked before it is put in place: a broken file in sudoers.d stops sudo for everyone.
+        lines.push(format!("printf '%s\\n' '{user} ALL=(ALL) NOPASSWD: ALL' > {SUDO_RULE}.new"));
+        lines.push(format!("chmod 440 {SUDO_RULE}.new"));
+        lines.push(format!("if command -v visudo >/dev/null; then visudo -cqf {SUDO_RULE}.new; fi"));
+        lines.push(format!("mv {SUDO_RULE}.new {SUDO_RULE}"));
+    }
+    (!lines.is_empty()).then(|| format!("set -e\n{}\n", lines.join("\n")))
+}
+
+/// A user name that can go into a sudo rule and a shell line as it is.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn plain_user_name(user: &str) -> bool {
+    !user.is_empty() && user.len() <= 32 && user.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')) && !user.starts_with('-')
+}
+
+#[cfg(target_os = "linux")]
+fn on_path(program: &str) -> bool {
+    std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|folder| folder.join(program).is_file()))
+}
+
+/// Linux: puts on the system what the program needs and can't carry (`Need`), and the sudo rule that gives this
+/// user admin rights, as root: through sudo when it asks no password, else through the desktop's password prompt
+/// (pkexec), else sudo in the terminal. Says what it did, or what is left for the user to do. `MC_NO_SYSTEM_SETUP`
+/// leaves the system alone. Elsewhere it has nothing to do.
+pub fn system_setup() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::IsTerminal;
+        if std::env::var_os("MC_NO_SYSTEM_SETUP").is_some() {
+            return vec!["left the system as it is (MC_NO_SYSTEM_SETUP is set)".into()];
+        }
+        let mut missing = Vec::new();
+        if !on_path("sudo") {
+            missing.push(&SUDO);
+        }
+        let bus = ["/usr/share/dbus-1/services/org.a11y.Bus.service", "/usr/libexec/at-spi-bus-launcher", "/usr/lib/at-spi-bus-launcher", "/usr/lib/at-spi2-core/at-spi-bus-launcher"];
+        if !bus.iter().any(|file| std::path::Path::new(file).exists()) {
+            missing.push(&ACCESSIBILITY_BUS);
+        }
+        if std::path::Path::new("/usr/bin/gnome-shell").exists() && !on_path("gsettings") {
+            missing.push(&GSETTINGS);
+        }
+        let manager = MANAGERS.iter().position(|(program, _)| on_path(program));
+        let user = crate::platform::user();
+        // SAFETY: geteuid has no arguments and cannot fail.
+        let root = unsafe { libc::geteuid() } == 0;
+        let sudo_asks = !root && !(on_path("sudo") && run("sudo", &["-n", "true"]).is_ok());
+        let rule_for = (sudo_asks && plain_user_name(&user)).then_some(user.as_str());
+        let mut done = Vec::new();
+        if !missing.is_empty() && manager.is_none() {
+            done.push(format!(
+                "this system's package manager isn't one Master Control knows (apt, dnf, pacman, zypper): install {} yourself",
+                missing.iter().map(|need| need.what).collect::<Vec<_>>().join(", ")
+            ));
+        }
+        let Some(script) = root_script(&missing, manager, rule_for) else {
+            done.push("the system has everything Master Control needs, and admin rights work without a password".into());
+            return done;
+        };
+        let graphical = std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
+        let ran = if root {
+            Some(("as root", run("sh", &["-c", &script])))
+        } else if !sudo_asks {
+            Some(("through sudo", run("sudo", &["-n", "sh", "-c", &script])))
+        } else if on_path("pkexec") && graphical {
+            Some(("after the system asked for the password", run("pkexec", &["/bin/sh", "-c", &script])))
+        } else if on_path("sudo") && std::io::stdin().is_terminal() {
+            let status = Command::new("sudo").args(["sh", "-c", &script]).status();
+            Some(("through sudo", status.and_then(|status| if status.success() { Ok(()) } else { Err(io::Error::other(format!("sudo ended with {status}"))) })))
+        } else {
+            None
+        };
+        let what = missing.iter().map(|need| need.what).chain(rule_for.map(|_| "admin rights without a password (a sudo rule)")).collect::<Vec<_>>().join(", ");
+        match ran {
+            Some((how, Ok(()))) => done.push(format!("set up {what}, {how}")),
+            Some((_, Err(error))) => done.push(format!("could NOT set up {what} ({error}); as root, run:\n{script}")),
+            None => done.push(format!("{what} still to set up: as root, run:\n{script}")),
+        }
+        done
+    }
+    #[cfg(not(target_os = "linux"))]
+    Vec::new()
 }
 
 /// Stops the installed worker, if it runs.
@@ -366,6 +485,21 @@ pub fn uninstall() -> io::Result<Vec<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn linux_set_up_installs_what_is_missing_and_the_sudo_rule() {
+        assert_eq!(root_script(&[], Some(0), None), None, "nothing to do");
+        let apt = root_script(&[&ACCESSIBILITY_BUS, &GSETTINGS], Some(0), None).unwrap();
+        assert!(apt.contains("apt-get update") && apt.contains("apt-get install -y at-spi2-core libglib2.0-bin"), "{apt}");
+        let dnf = root_script(&[&SUDO, &GSETTINGS], Some(1), Some("herb")).unwrap();
+        assert!(dnf.contains("dnf install -y sudo glib2"), "{dnf}");
+        assert!(dnf.contains("'herb ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/master-control.new"), "{dnf}");
+        let (check, place) = (dnf.find("visudo -cqf").unwrap(), dnf.find("mv /etc/sudoers.d/master-control.new").unwrap());
+        assert!(check < place && dnf.starts_with("set -e"), "the rule is checked before it is put in place: {dnf}");
+        let rule_only = root_script(&[&SUDO], None, Some("herb")).unwrap();
+        assert!(!rule_only.contains("install"), "no package manager: only the rule: {rule_only}");
+        assert!(plain_user_name("herb") && plain_user_name("first.last") && !plain_user_name("a b") && !plain_user_name("x'y") && !plain_user_name("-r"));
+    }
 
     #[test]
     fn an_extension_is_added_to_gnomes_list_once() {

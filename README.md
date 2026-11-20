@@ -36,13 +36,13 @@ The agent gets these as an MCP server, a command line (`mctl call`) and an HTTP 
 | Observation | system calls, files, network, memory (x86-64) | files, network, registry, memory (needs admin) | programs, files, ports, with less detail; more with admin rights |
 | Call stacks | on every event, if asked | on every event, if asked | on crashes |
 
-Android is planned and not started.
-
 ## Requirements
 
 - [Rust](https://rustup.rs), a recent stable version. Nothing else: there are no system libraries to install.
-- Linux: an X11 session, or GNOME on Wayland, for the screen and input tools. On GNOME under Wayland, `mc-agent start`
-  installs a small GNOME Shell extension for them, which starts working after the next sign-in.
+- Linux: an X11 session, or GNOME on Wayland, for the screen and input tools; the program tells which on its own.
+  Start puts on the system whatever it lacks (the accessibility bus, sudo, gsettings) and the sudo rule for admin
+  rights, asking for your password once. On GNOME under Wayland it also installs a small GNOME Shell extension,
+  which starts working after the next sign-in.
 - Windows: an administrator account for observation.
 - macOS: Apple's Command Line Tools (`xcode-select --install`) to build the app.
 
@@ -76,14 +76,23 @@ xattr -dr com.apple.quarantine "/Applications/Master Control.app"
 
 or use **Open Anyway** under System Settings → Privacy & Security.
 
-**Linux and Windows**
+**Linux**
+
+```bash
+cargo build --release -p master-control --target x86_64-unknown-linux-musl
+```
+
+The program is `target/x86_64-unknown-linux-musl/release/master-control`: one static file that runs on any Linux
+without installing anything, and is the window, the master and the worker in one. Put it wherever you like.
+(`rustup target add x86_64-unknown-linux-musl` first, if you haven't.)
+
+**Windows**
 
 ```bash
 cargo build --release -p master-control
 ```
 
-The program is `target/release/master-control` (`master-control.exe` on Windows). It is a single file; put it
-wherever you like.
+The program is `target/release/master-control.exe`. It is a single file; put it wherever you like.
 
 ## Setting it up
 

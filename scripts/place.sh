@@ -2,7 +2,7 @@
 # Builds the current commit and puts it everywhere Master Control is installed, then proves each copy is the new
 # one by asking it for its version:
 #   the Mac      the master (~/.local/opt/master-control/mctl) and /Applications/Master Control.app
-#   Linux        the worker (service master-control) and the app on the desktop (the static build)
+#   Linux        the app on the desktop: one static program that is also the worker (service master-control)
 #   Windows      the worker (task "Master Control") and the app on the desktop
 #
 #   scripts/place.sh              all three
@@ -53,9 +53,8 @@ for machine in ${*:-mac linux windows}; do
     linux)
         git archive HEAD | ssh -o ConnectTimeout=15 "$LINUX_HOST" "set -e; rm -rf /tmp/$DIR; mkdir -p /tmp/$DIR; tar -x -C /tmp/$DIR; cd /tmp/$DIR
             export PATH=\$HOME/.cargo/bin:\$PATH CARGO_TARGET_DIR=\$HOME/.cache/mc-check-target MC_VERSION=$VERSION XDG_RUNTIME_DIR=/run/user/\$(id -u)
-            cargo build --release -p mc-agent --bin mc-agent 2>&1 | tail -1
             cargo build --release -p master-control --target x86_64-unknown-linux-musl 2>&1 | tail -1
-            \$CARGO_TARGET_DIR/release/mc-agent start --name linux >/dev/null
+            \$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/master-control agent start --name linux >/dev/null
             cp \$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/master-control ~/Desktop/master-control.new
             mv -f ~/Desktop/master-control.new ~/Desktop/master-control
             cd /; rm -rf /tmp/$DIR"
