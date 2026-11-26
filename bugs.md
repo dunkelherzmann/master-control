@@ -170,3 +170,8 @@ marked *found in testing*.
   processes were ended from outside; they took Windows' few places, so later observations failed with "all are
   taken" until they were stopped by hand (`logman stop NAME -ets`). The recorder should stop stale sessions of
   its own name on start, or name them so a new recorder can tell they are orphaned.
+
+- [ ] 2026-11-26: **Two Mac observation tests fail under a full parallel run** (macOS; *found in testing*).
+  `a_running_program_is_followed_and_left_running` and `file_activity_is_recorded_in_order` failed twice in a
+  whole `cargo test -p mc-agent` run and passed every time `--test observe_macos` ran alone (four runs, on
+  `main` and on this branch): timing under load, not a change in what is recorded.
