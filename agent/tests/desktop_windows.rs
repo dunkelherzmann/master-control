@@ -345,6 +345,40 @@ fn a_window_is_moved_sized_minimized_maximized_and_restored() {
     assert_eq!(test.refused("arrange", json!({"window": "no such window anywhere", "x": 5})), (404, "window_not_found".into()));
 }
 
+/// A Start menu shortcut of the test's own, removed when the test ends.
+struct Shortcut(std::path::PathBuf);
+
+impl Drop for Shortcut {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn an_app_is_launched_by_its_start_menu_name_and_its_window_awaited() {
+    let (_turn, test, _fixture) = start("mc test: launcher");
+    let name = format!("MC Test App {}", std::process::id());
+    let programs = std::path::PathBuf::from(std::env::var("APPDATA").unwrap()).join("Microsoft\\Windows\\Start Menu\\Programs");
+    let shortcut = Shortcut(programs.join(format!("{name}.lnk")));
+    // A window that is PowerShell's: a form titled for the test, which the test closes.
+    let form = "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = 'mc test: launched'; [void]$f.ShowDialog()";
+    let made = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &format!("$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = 'powershell.exe'; $s.Arguments = '-NoProfile -WindowStyle Hidden -Command \"{}\"'; $s.Save()", shortcut.0.display(), form.replace('\'', "''"))])
+        .status()
+        .unwrap();
+    assert!(made.success() && shortcut.0.exists());
+
+    let listed = test.tool("apps", json!({"name": name}));
+    assert_eq!(listed["apps"].as_array().unwrap().len(), 1, "{listed}");
+    assert!(test.tool("apps", json!({}))["apps"].as_array().unwrap().len() > 5, "the Start menu lists the system's apps too");
+    let launched = test.tool("launch", json!({"name": name.to_lowercase(), "wait_s": 60}));
+    assert_eq!((&launched["app"]["name"], &launched["window"]["title"]), (&json!(name), &json!("mc test: launched")), "{launched}");
+    let window = launched["window"]["id"].as_u64().unwrap() as usize as HWND;
+    unsafe { PostMessageW(window, WM_CLOSE, 0, 0) };
+    assert_eq!(test.tool("wait_for", json!({"window": "mc test: launched", "gone": true}))["gone"], true);
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+}
+
 #[test]
 fn a_drag_presses_travels_and_releases() {
     let (_turn, test, fixture) = start("mc test: drag");

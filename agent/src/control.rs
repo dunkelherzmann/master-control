@@ -467,6 +467,48 @@ pub fn arrange(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     Ok(delivered(Some(now), answer))
 }
 
+/// The apps the system's launcher offers, by name: all of them, or those whose name contains `name`.
+pub fn apps(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = text(args, "name")?.unwrap_or("").to_lowercase();
+    let apps = crate::apps::list()?;
+    let listed: Vec<Value> = apps.iter().filter(|app| app.name.to_lowercase().contains(&wanted)).map(|app| json!({ "name": app.name, "id": app.id })).collect();
+    Ok(json!({ "apps": listed }))
+}
+
+/// Starts an app by its name in the launcher, and waits for a window of it to open.
+pub fn launch(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = text(args, "name")?.filter(|name| !name.is_empty()).ok_or_else(|| ToolError::bad("name is required: the app's name as the launcher shows it, or its id from `apps`"))?;
+    let wait = number(args, "wait_s")?.unwrap_or(10);
+    if wait > 60 {
+        return Err(ToolError::bad("wait_s is at most 60"));
+    }
+    let apps = crate::apps::list()?;
+    let app = crate::apps::choose(&apps, wanted)?;
+    // The windows there were before, so the new one can be told apart. Without a desktop there is none to wait for.
+    let desktop = desktop::open().ok();
+    let before: Vec<u64> = desktop.as_ref().and_then(|desktop| desktop.windows().ok()).unwrap_or_default().iter().map(|window| window.id).collect();
+    crate::apps::start(app)?;
+    let mut answer = json!({ "app": { "name": app.name, "id": app.id }, "delivered": true });
+    let Some(desktop) = desktop.filter(|_| wait > 0) else {
+        return Ok(answer);
+    };
+    let deadline = Instant::now() + Duration::from_secs(wait);
+    loop {
+        // A window that has a title: apps put up empty helper windows first.
+        let new = desktop.windows().ok().and_then(|windows| windows.into_iter().find(|window| !before.contains(&window.id) && !window.title.is_empty()));
+        if let Some(window) = new {
+            answer["window"] = window_json(&window);
+            return Ok(answer);
+        }
+        if Instant::now() >= deadline {
+            answer["window"] = Value::Null;
+            answer["note"] = json!(format!("no new window opened within {wait} s: the app may still be starting, may have no window, or may have shown one it already had"));
+            return Ok(answer);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// The window as it is once `done` holds, or as it is after two seconds; None if it is gone for all that time. A
 /// window coming back from the Dock is listed nowhere for a moment while it animates.
 fn wait_until(read: impl Fn() -> Option<WindowInfo>, done: impl Fn(&WindowInfo) -> bool) -> Option<WindowInfo> {

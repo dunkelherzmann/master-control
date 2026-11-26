@@ -174,7 +174,7 @@ fn status_describes_the_machine() {
     assert_eq!(status["capabilities"]["exec"], true);
     assert_eq!(status["capabilities"]["screen"], status["capabilities"]["input"]);
     assert_eq!(status["capabilities"]["observe"], cfg!(any(windows, target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))));
-    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
+    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
 }
 
 #[test]
@@ -483,7 +483,7 @@ fn mcp_over_http_lists_and_calls_the_tools() {
 
     let (_, listed) = test.mcp(json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
+    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
         assert!(tool["description"].as_str().unwrap().len() > 20);
@@ -669,6 +669,41 @@ fn exec_runs_with_admin_rights_when_asked_and_able() {
     if cfg!(unix) && test.tool("status", json!({}))["elevated"] == false {
         assert_ne!(test.tool("exec", json!({"command": "id -u"}))["stdout"].as_str().unwrap().trim(), "0");
     }
+}
+
+/// The apps in the Applications folders are listed by name; one the test makes is started by it. The app is a
+/// script with no window, which only writes a file, so it runs only when asked for (MC_MAC_GUI_TESTS=1).
+#[cfg(target_os = "macos")]
+#[test]
+fn on_a_mac_apps_are_listed_and_launched_by_name() {
+    let test = Test::new();
+    let listed = test.tool("apps", json!({"name": "calculator"}));
+    assert!(listed["apps"].as_array().unwrap().iter().any(|app| app["id"] == "/System/Applications/Calculator.app"), "{listed}");
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+    if std::env::var_os("MC_MAC_GUI_TESTS").is_none() {
+        eprintln!("skipped launching: set MC_MAC_GUI_TESTS=1 to start a test app on this Mac");
+        return;
+    }
+    let folder = std::env::temp_dir().join(format!("mc-mac-apps-{}", std::process::id()));
+    let name = format!("MC Test App {}", std::process::id());
+    let bundle = folder.join(format!("{name}.app/Contents"));
+    let marker = folder.join("launched");
+    std::fs::create_dir_all(bundle.join("MacOS")).unwrap();
+    std::fs::write(bundle.join("Info.plist"), format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>run</string><key>CFBundleIdentifier</key><string>io.github.dunkelherzmann.mctest{}</string><key>LSUIElement</key><true/></dict></plist>\n", std::process::id())).unwrap();
+    let script = bundle.join("MacOS/run");
+    std::fs::write(&script, format!("#!/bin/sh\necho launched > '{}'\n", marker.display())).unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::env::set_var("MC_APPS_FOLDERS", &folder);
+    let launched = test.tool("launch", json!({"name": name, "wait_s": 0}));
+    std::env::remove_var("MC_APPS_FOLDERS");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !marker.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let ran = marker.exists();
+    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(launched["app"]["name"], json!(name), "{launched}");
+    assert!(ran, "the app ran: {launched}");
 }
 
 /// The Mac window tests take turns: each compares the window list before and after, which the other's window moves.

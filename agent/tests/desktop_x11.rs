@@ -602,6 +602,36 @@ fn the_tree_names_what_is_in_a_window_and_elements_can_be_clicked() {
 }
 
 #[test]
+fn an_app_is_launched_by_its_name_and_its_window_awaited() {
+    let turn = desktop_turn();
+    private_display();
+    let test = Test::new();
+    // A desktop entry of the test's own, in a folder the agent is told to look in as well.
+    let folder = std::env::temp_dir().join(format!("mc-x11-apps-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let name = format!("MC Test Dialog {}", std::process::id());
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gtk_entry_dialog.py");
+    std::fs::write(folder.join("mc-test-dialog.desktop"), format!("[Desktop Entry]\nType=Application\nName={name}\nExec=python3 \"{fixture}\" \"mc test: launched\"\n")).unwrap();
+    std::fs::write(folder.join("mc-test-hidden.desktop"), format!("[Desktop Entry]\nType=Application\nName={name} hidden\nNoDisplay=true\nExec=true\n")).unwrap();
+    std::env::set_var("MC_APPS_FOLDERS", &folder);
+
+    let listed = test.tool("apps", json!({"name": name}));
+    assert_eq!(listed["apps"].as_array().unwrap().len(), 1, "the hidden entry isn't offered: {listed}");
+    let launched = test.tool("launch", json!({"name": name.to_lowercase(), "wait_s": 60}));
+    assert_eq!((&launched["app"]["name"], &launched["window"]["title"]), (&json!(name), &json!("mc test: launched")), "{launched}");
+    // The window is the app's own: it has the dialog's buttons. Cancel closes it.
+    let cancel = test.tool("wait_for", json!({"window": "mc test: launched", "role": "button", "name": "Cancel", "timeout_s": 30}));
+    test.tool("press", json!({"element": cancel["elements"][0]["id"]}));
+    assert_eq!(test.tool("wait_for", json!({"window": "mc test: launched", "gone": true}))["gone"], true);
+
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+    assert_eq!(test.refused("launch", json!({})), (400, "bad_input".into()));
+    std::env::remove_var("MC_APPS_FOLDERS");
+    let _ = std::fs::remove_dir_all(&folder);
+    drop(turn);
+}
+
+#[test]
 fn a_window_that_says_nothing_about_its_contents_is_reported_as_such() {
     let (_turn, test, fixture) = start("mc test: plain", (100, 80, 200, 100));
     assert_eq!(test.refused("tree", json!({"window": fixture.title})), (501, "not_supported".into()));

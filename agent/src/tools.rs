@@ -196,6 +196,22 @@ pub const TOOLS: &[Tool] = &[
         run: crate::control::arrange,
     },
     Tool {
+        name: "apps",
+        description: "The apps the system's launcher offers (the Start menu on Windows, the Applications folders on macOS, \
+                      the desktop entries on Linux), by name and id. `name` keeps those whose name contains it.",
+        schema: || object(json!({"name": {"type": "string", "description": "Only the apps whose name contains this, in any case."}}), &[]),
+        run: crate::control::apps,
+    },
+    Tool {
+        name: "launch",
+        description: "Start an app by its name as the launcher shows it (exactly, in any case, or a part only one name \
+                      has) or its id from `apps`, the way the launcher would: in the user's own session and rights. \
+                      Waits up to `wait_s` (default 10, 0 not to wait) for a new window, and answers with it; `window` is \
+                      null if none opened in time. For a program with arguments, use exec.",
+        schema: || object(json!({"name": {"type": "string"}, "wait_s": {"type": "integer", "description": "Seconds to wait for its window. Default 10, at most 60."}}), &["name"]),
+        run: crate::control::launch,
+    },
+    Tool {
         name: "click",
         description: "Click at a position. With `window`, that window is brought to the front first and the position \
                       must be inside it. With `background` (macOS) nothing comes to the front and the pointer stays \
