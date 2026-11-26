@@ -233,3 +233,14 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-26: **Scripts run commands on the Linux and Windows machines through Master Control (mc-exec) instead of SSH** (developer tooling): `scripts/check.sh`, `scripts/place.sh` and `scripts/gen-syscalls.sh` copy files with `mc-exec --put` and run through `mc-exec`, by the Master Control names `linux` and `windows`; `place.sh` starts the worker replacement outside the worker (a systemd unit, a scheduled task) and waits for the new one to answer. Shipped in #22.
 
 - [x] 2026-11-26: **`mc-exec` ships with Master Control** (developer tooling): `scripts/mc-exec` runs a command on a machine through `mctl` with its own output and exit code, and copies files of any size (`--put`/`--get`), so the repository's scripts need nothing beyond the master's `mctl` (asked 2026-11-26). Shipped in #23.
+
+- [ ] 2026-11-26: **Close the gaps found against Windows-Use** (all platforms; asked after the window-control
+  comparison: "add them and build them, see if they can be implemented on Linux and Mac also").
+  - [ ] Click with keys held (ctrl or shift multi-select): Mac, Linux, Windows
+  - [ ] Typing helpers: clear the field first, put the caret at the start or the end, press Enter after: Mac,
+    Linux, Windows
+  - [ ] A compact view of a window that lists only what can be acted on: Mac, Linux, Windows
+  - [ ] Move, resize, minimize, maximize and restore a window: Mac, Linux, Windows
+  - [ ] Launch an app by its name, and list the apps that can be launched: Mac, Linux, Windows
+  - [ ] Virtual desktops: list, switch, create, remove: Mac, Linux, Windows
+  - [ ] Faster window reading and a stronger bring-to-front on Windows

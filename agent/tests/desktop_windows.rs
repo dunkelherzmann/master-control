@@ -293,6 +293,23 @@ fn clicks_arrive_where_they_were_aimed() {
 }
 
 #[test]
+fn a_click_with_keys_held_has_them_down_around_the_button_only() {
+    let (_turn, test, fixture) = start("mc test: held click");
+    const CONTROL: u32 = 0x11;
+    const SHIFT: u32 = 0x10;
+    let answer = test.tool("click", json!({"x": 450, "y": 325, "window": fixture.title, "hold": "ctrl"}));
+    assert_eq!(answer["held"], "ctrl");
+    let seen: Vec<Seen> = fixture.take().into_iter().filter(|event| !matches!(event, Seen::Move { .. })).collect();
+    assert_eq!(seen, [Seen::KeyDown(CONTROL), Seen::Button { what: "left down", x: 450, y: 325 }, Seen::Button { what: "left up", x: 450, y: 325 }, Seen::KeyUp(CONTROL)]);
+    test.tool("click", json!({"x": 450, "y": 325, "window": fixture.title, "hold": "ctrl+shift"}));
+    assert_eq!(fixture.keys_down(), [CONTROL, SHIFT]);
+    // Nothing is left held: a plain key types its plain character.
+    test.tool("key", json!({"keys": "x", "window": fixture.title}));
+    assert_eq!(fixture.typed(), "x");
+    assert_eq!(test.refused("click", json!({"x": 450, "y": 325, "hold": "a"})), (400, "bad_input".into()));
+}
+
+#[test]
 fn a_drag_presses_travels_and_releases() {
     let (_turn, test, fixture) = start("mc test: drag");
     let answer = test.tool("drag", json!({"from_x": 250, "from_y": 190, "to_x": 600, "to_y": 450, "window": fixture.title}));
@@ -445,14 +462,20 @@ fn the_tree_names_what_is_in_a_window_and_elements_can_be_clicked() {
     assert_eq!((&clicked["delivered"], &clicked["at"]), (&json!(true), &json!({"x": 280, "y": 185})));
     assert!(fixture.take().contains(&Seen::Command(101)));
 
-    // Clicking the field puts the keyboard in it; what is typed shows up as its value.
+    // Clicking the field puts the keyboard in it; what is typed shows up as its value. `clear` empties it first
+    // (a plain Windows text field has no Ctrl+A), `caret` puts the text at either end of what is there.
     test.tool("click", json!({"element": field["id"]}));
-    // A plain Windows text field has no Ctrl+A; Home and Shift+End select its line.
-    test.tool("key", json!({"keys": "home", "window": fixture.title}));
-    test.tool("key", json!({"keys": "shift+end", "window": fixture.title}));
-    test.tool("type_text", json!({"text": "typed by the test", "window": fixture.title}));
+    test.tool("type_text", json!({"text": "typed by the test", "clear": true, "window": fixture.title}));
     let after = test.tool("find", json!({"window": fixture.title, "role": "text"}));
     assert_eq!((&after["elements"][0]["value"], &after["elements"][0]["focused"]), (&json!("typed by the test"), &json!(true)));
+    test.tool("type_text", json!({"text": "<", "caret": "start", "window": fixture.title}));
+    test.tool("type_text", json!({"text": ">", "caret": "end", "window": fixture.title}));
+    assert_eq!(test.tool("find", json!({"window": fixture.title, "role": "text"}))["elements"][0]["value"], "<typed by the test>");
+
+    // The compact view keeps the controls and leaves out the label.
+    let compact = test.tool("tree", json!({"window": fixture.title, "interactive": true}));
+    let kept: Vec<&str> = compact["elements"].as_array().unwrap().iter().map(|element| element["role"].as_str().unwrap()).collect();
+    assert!(["button", "text", "check_box", "combo_box"].iter().all(|role| kept.contains(role)) && !kept.contains(&"label") && !kept.contains(&"window"), "{compact}");
 
     assert_eq!(test.refused("click", json!({"element": "9999.1"})), (409, "element_gone".into()));
     assert_eq!(test.refused("click", json!({"element": format!("{}.9999", tree["tree"])})), (409, "element_gone".into()));

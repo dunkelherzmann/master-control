@@ -426,18 +426,52 @@ fn click_quietly(agent: &Agent, desktop: &dyn Desktop, args: &Value) -> Result<V
     Ok(delivered(Some(window), json!({ "at": { "x": point.0, "y": point.1 }, "background": true, "did": did })))
 }
 
+/// The modifier keys a click is to be made with (`hold`: "ctrl", "shift", "ctrl+shift"), checked to be modifiers.
+fn held_keys(args: &Value) -> Result<Vec<keys::Key>, ToolError> {
+    let Some(hold) = text(args, "hold")?.filter(|hold| !hold.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let chord = keys::parse_chord(hold).map_err(ToolError::bad)?;
+    if let Some(key) = chord.iter().find(|key| !key.is_modifier()) {
+        return Err(ToolError::bad(format!("hold takes modifier keys only (ctrl, shift, alt, cmd/win), not {key:?}")));
+    }
+    Ok(chord)
+}
+
+/// Runs `action` with the keys held down, and lets them go afterwards whatever happened: a modifier left held would
+/// change every key the user or the next tool presses.
+fn holding<T>(desktop: &dyn Desktop, held: &[keys::Key], action: impl FnOnce() -> Result<T, ToolError>) -> Result<T, ToolError> {
+    let mut down = Vec::new();
+    let pressed = held.iter().try_for_each(|key| {
+        desktop.key(*key, true)?;
+        down.push(*key);
+        std::thread::sleep(Duration::from_millis(10));
+        Ok::<(), DesktopError>(())
+    });
+    let outcome = pressed.map_err(ToolError::from).and_then(|()| action());
+    let released: Vec<_> = down.iter().rev().map(|key| desktop.key(*key, false)).collect();
+    let value = outcome?;
+    released.into_iter().collect::<Result<Vec<_>, _>>()?;
+    Ok(value)
+}
+
 fn click_with(agent: &Agent, args: &Value, button: Button, times: u32) -> Result<Value, ToolError> {
     let desktop = open()?;
+    let held = held_keys(args)?;
     if crate::tools::flag(args, "background")? {
-        if button != Button::Left || times != 1 {
-            return not_in_the_background(args, "a double, right or middle click").map(|()| Value::Null);
+        if button != Button::Left || times != 1 || !held.is_empty() {
+            return not_in_the_background(args, "a double, right, middle or held-key click").map(|()| Value::Null);
         }
         return click_quietly(agent, desktop.as_ref(), args);
     }
     let ((x, y), window) = aim(agent, desktop.as_ref(), args)?;
     move_to(desktop.as_ref(), x, y)?;
-    press(desktop.as_ref(), button, times)?;
-    Ok(delivered(window, json!({ "at": { "x": x, "y": y } })))
+    holding(desktop.as_ref(), &held, || press(desktop.as_ref(), button, times))?;
+    let mut answer = json!({ "at": { "x": x, "y": y } });
+    if !held.is_empty() {
+        answer["held"] = json!(text(args, "hold")?);
+    }
+    Ok(delivered(window, answer))
 }
 
 pub fn click(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -562,17 +596,77 @@ pub fn clipboard_set(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     Ok(json!({ "delivered": true, "characters": wanted.chars().count() }))
 }
 
-pub fn type_text(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
-    let text_given = required_text(args, "text")?;
-    let desktop = open()?;
-    if crate::tools::flag(args, "background")? {
-        let window = keyboard_target(agent, desktop.as_ref(), args, false)?;
-        desktop.quiet_text(&window, text_given)?;
-        return Ok(typed(desktop.as_ref(), window, json!({ "characters": text_given.chars().count(), "background": true })));
+/// Presses a chord: its keys down in order, then up in reverse, even when a later key failed.
+fn press_chord(desktop: &dyn Desktop, chord: &[keys::Key]) -> Result<(), ToolError> {
+    let (last, held) = chord.split_last().ok_or_else(|| ToolError::bad("no keys"))?;
+    holding(desktop, held, || {
+        desktop.key(*last, true)?;
+        std::thread::sleep(Duration::from_millis(10));
+        desktop.key(*last, false)?;
+        Ok(())
+    })?;
+    std::thread::sleep(Duration::from_millis(15));
+    Ok(())
+}
+
+/// The keys `type_text` presses around the text: before it, to empty the field or move the caret; after it, Enter.
+#[derive(Debug, PartialEq)]
+struct Around {
+    before: Vec<Vec<keys::Key>>,
+    after: Vec<Vec<keys::Key>>,
+}
+
+/// What `clear`, `caret` and `enter` ask for, in the keys of this system: Command on macOS, Ctrl elsewhere.
+fn around(args: &Value, mac: bool) -> Result<Around, ToolError> {
+    use keys::Key;
+    let mut before = Vec::new();
+    if crate::tools::flag(args, "clear")? {
+        // From the start to the end, selected, then deleted: Select All is a menu command some fields lack (a plain
+        // Windows text field has no Ctrl+A).
+        let (start, select_to_end) = if mac { (vec![Key::Meta, Key::Up], vec![Key::Meta, Key::Shift, Key::Down]) } else { (vec![Key::Ctrl, Key::Home], vec![Key::Ctrl, Key::Shift, Key::End]) };
+        before.extend([start, select_to_end, vec![Key::Backspace]]);
     }
-    let window = keyboard_target(agent, desktop.as_ref(), args, true)?;
-    desktop.text(text_given)?;
-    Ok(typed(desktop.as_ref(), window, json!({ "characters": text_given.chars().count() })))
+    match text(args, "caret")? {
+        None => {}
+        Some(_) if !before.is_empty() => return Err(ToolError::bad("give clear or caret, not both: a cleared field has nowhere else for the caret to be")),
+        Some("start") => before.push(if mac { vec![Key::Meta, Key::Up] } else { vec![Key::Ctrl, Key::Home] }),
+        Some("end") => before.push(if mac { vec![Key::Meta, Key::Down] } else { vec![Key::Ctrl, Key::End] }),
+        Some(other) => return Err(ToolError::bad(format!("caret is start or end, not {other}"))),
+    }
+    let after = if crate::tools::flag(args, "enter")? { vec![vec![Key::Enter]] } else { Vec::new() };
+    Ok(Around { before, after })
+}
+
+pub fn type_text(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let around = around(args, cfg!(target_os = "macos"))?;
+    let text_given = match text(args, "text")? {
+        Some(text) if !text.is_empty() => text,
+        // Only emptying a field, or only pressing Enter, needs no text.
+        _ if !around.before.is_empty() || !around.after.is_empty() => "",
+        _ => return Err(ToolError::bad("text is required")),
+    };
+    let desktop = open()?;
+    let background = crate::tools::flag(args, "background")?;
+    let window = keyboard_target(agent, desktop.as_ref(), args, !background)?;
+    let chord = |keys: &[keys::Key]| if background { desktop.quiet_chord(&window, keys).map_err(ToolError::from) } else { press_chord(desktop.as_ref(), keys) };
+    for keys in &around.before {
+        chord(keys)?;
+    }
+    if !text_given.is_empty() {
+        if background {
+            desktop.quiet_text(&window, text_given)?;
+        } else {
+            desktop.text(text_given)?;
+        }
+    }
+    for keys in &around.after {
+        chord(keys)?;
+    }
+    let mut answer = json!({ "characters": text_given.chars().count() });
+    if background {
+        answer["background"] = json!(true);
+    }
+    Ok(typed(desktop.as_ref(), window, answer))
 }
 
 pub fn key(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -593,19 +687,7 @@ pub fn key(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     let window = keyboard_target(agent, desktop.as_ref(), args, true)?;
     let owner = desktop.keyboard_owner(&window);
     for _ in 0..times {
-        let mut held = Vec::new();
-        let pressed = chord.iter().try_for_each(|key| {
-            desktop.key(*key, true)?;
-            held.push(*key);
-            std::thread::sleep(Duration::from_millis(10));
-            Ok::<(), DesktopError>(())
-        });
-        // Release what went down, in reverse, even when a later key failed: a modifier left held would change every
-        // key the user or the next tool presses.
-        let released: Vec<_> = held.iter().rev().map(|key| desktop.key(*key, false)).collect();
-        pressed?;
-        released.into_iter().collect::<Result<Vec<_>, _>>()?;
-        std::thread::sleep(Duration::from_millis(15));
+        press_chord(desktop.as_ref(), &chord)?;
     }
     // What had the keyboard before the keys went: after them it may be something else (a dialog they closed).
     let mut answer = json!({ "keys": required_text(args, "keys")?, "times": times });
@@ -622,21 +704,31 @@ struct Wanted {
     role: Option<String>,
     name: Option<String>,
     value: Option<String>,
+    /// Only what can be acted on: a control with a place on screen, or whatever has the keyboard.
+    interactive: bool,
 }
+
+/// The roles of the elements a person or an agent can act on.
+const INTERACTIVE: &[&str] = &[
+    "button", "text", "check_box", "radio_button", "combo_box", "menu_item", "list_item", "tree_item", "tab", "link",
+    "slider", "spinner", "scroll_bar", "cell", "menu_bar_item", "switch", "toggle_button", "split_button", "hyperlink",
+];
 
 impl Wanted {
     fn from(args: &Value) -> Result<Wanted, ToolError> {
         let lower = |name: &str| Ok::<_, ToolError>(text(args, name)?.filter(|text| !text.is_empty()).map(str::to_lowercase));
-        Ok(Wanted { role: lower("role")?, name: lower("name")?, value: lower("value")? })
+        Ok(Wanted { role: lower("role")?, name: lower("name")?, value: lower("value")?, interactive: crate::tools::flag(args, "interactive")? })
     }
 
     fn anything(&self) -> bool {
-        self.role.is_none() && self.name.is_none() && self.value.is_none()
+        self.role.is_none() && self.name.is_none() && self.value.is_none() && !self.interactive
     }
 
     /// The role must be the same; the name and value need only contain what was asked, in any case.
     fn matches(&self, element: &Element) -> bool {
-        self.role.as_ref().is_none_or(|role| element.role == *role)
+        let actionable = || element.focused || (INTERACTIVE.contains(&element.role.as_str()) && element.frame.is_some_and(|frame| frame.width > 0 && frame.height > 0));
+        (!self.interactive || actionable())
+            && self.role.as_ref().is_none_or(|role| element.role == *role)
             && self.name.as_ref().is_none_or(|name| element.name.to_lowercase().contains(name))
             && self.value.as_ref().is_none_or(|value| element.value.as_ref().is_some_and(|held| held.to_lowercase().contains(value)))
     }
@@ -706,9 +798,10 @@ fn read_window(agent: &Agent, desktop: &dyn Desktop, window: &WindowInfo, limits
 }
 
 pub fn tree(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = Wanted::from(args)?;
     let desktop = open()?;
     let window = find_window(desktop.as_ref(), &args["window"])?;
-    read_window(agent, desktop.as_ref(), &window, limits(args)?, None)
+    read_window(agent, desktop.as_ref(), &window, limits(args)?, (!wanted.anything()).then_some(&wanted))
 }
 
 pub fn find(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -834,4 +927,54 @@ pub fn expand(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
 
 pub fn select(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     act(agent, args, ElementAction::Select)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keys::Key;
+
+    #[test]
+    fn typing_helpers_press_the_keys_of_each_system() {
+        let none = around(&json!({}), false).unwrap();
+        assert_eq!(none, Around { before: vec![], after: vec![] });
+        let clear = around(&json!({"clear": true, "enter": true}), false).unwrap();
+        assert_eq!(clear.before, [vec![Key::Ctrl, Key::Home], vec![Key::Ctrl, Key::Shift, Key::End], vec![Key::Backspace]]);
+        assert_eq!(clear.after, [vec![Key::Enter]]);
+        assert_eq!(around(&json!({"clear": true}), true).unwrap().before, [vec![Key::Meta, Key::Up], vec![Key::Meta, Key::Shift, Key::Down], vec![Key::Backspace]], "Command on macOS");
+        assert_eq!(around(&json!({"caret": "start"}), false).unwrap().before, [vec![Key::Ctrl, Key::Home]]);
+        assert_eq!(around(&json!({"caret": "end"}), false).unwrap().before, [vec![Key::Ctrl, Key::End]]);
+        assert_eq!(around(&json!({"caret": "start"}), true).unwrap().before, [vec![Key::Meta, Key::Up]]);
+        assert_eq!(around(&json!({"caret": "end"}), true).unwrap().before, [vec![Key::Meta, Key::Down]]);
+        assert_eq!(around(&json!({"caret": "middle"}), false).unwrap_err().code, "bad_input");
+        assert_eq!(around(&json!({"clear": true, "caret": "end"}), false).unwrap_err().code, "bad_input");
+        assert_eq!(around(&json!({"enter": "yes"}), false).unwrap_err().code, "bad_input");
+    }
+
+    #[test]
+    fn held_keys_are_modifiers_only() {
+        assert_eq!(held_keys(&json!({})).unwrap(), []);
+        assert_eq!(held_keys(&json!({"hold": "ctrl+shift"})).unwrap(), [Key::Ctrl, Key::Shift]);
+        assert_eq!(held_keys(&json!({"hold": "cmd"})).unwrap(), [Key::Meta]);
+        assert_eq!(held_keys(&json!({"hold": "ctrl+a"})).unwrap_err().code, "bad_input");
+        assert_eq!(held_keys(&json!({"hold": "nonsense"})).unwrap_err().code, "bad_input");
+    }
+
+    #[test]
+    fn the_compact_view_keeps_what_can_be_acted_on() {
+        let wanted = Wanted::from(&json!({"interactive": true})).unwrap();
+        assert!(!wanted.anything());
+        let place = Some(Rect { x: 1, y: 1, width: 10, height: 10 });
+        let element = |role: &str, frame: Option<Rect>, focused: bool| Element { role: role.into(), frame, focused, enabled: true, ..Element::default() };
+        assert!(wanted.matches(&element("button", place, false)));
+        assert!(wanted.matches(&element("text", place, false)));
+        assert!(!wanted.matches(&element("label", place, false)), "a label can't be acted on");
+        assert!(!wanted.matches(&element("pane", place, false)));
+        assert!(!wanted.matches(&element("button", None, false)), "a button with no place isn't shown");
+        assert!(!wanted.matches(&element("button", Some(Rect { x: 0, y: 0, width: 0, height: 5 }), false)));
+        assert!(wanted.matches(&element("pane", None, true)), "what has the keyboard always is");
+        let buttons = Wanted::from(&json!({"interactive": true, "role": "button"})).unwrap();
+        assert!(buttons.matches(&element("button", place, false)) && !buttons.matches(&element("text", place, false)));
+        assert!(Wanted::from(&json!({})).unwrap().anything(), "a plain tree filters nothing");
+    }
 }

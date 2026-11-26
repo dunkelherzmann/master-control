@@ -102,6 +102,14 @@ title) or `element` (an id from `find`). With `element`, that element is given t
 into it and not into whatever in the window had the keyboard (a browser's address bar, say). The window must
 come to the front, or nothing is sent and you get `focus_refused`, with the name of what is in front instead.
 
+**Fill a field in one call.** `type_text` with `clear: true` empties the field first, `caret: "start"` or
+`"end"` puts the text at either end of what is there, and `enter: true` presses Enter after (a search, a form).
+To pick several items, click them with `hold: "ctrl"` (`"cmd"` on macOS); `hold: "shift"` selects a range.
+
+**Read busy windows compactly.** `tree` with `interactive: true` lists only what can be acted on (buttons,
+fields, list items and the like, plus what has the keyboard): a fraction of the full tree for a file manager or a
+browser. Its ids work like any other.
+
 **Sent is not landed.** The answer's `into` (macOS, Windows) names what had the keyboard: check it is what you
 meant, and check the result (`find` the field, or take a screenshot) before going on.
 
