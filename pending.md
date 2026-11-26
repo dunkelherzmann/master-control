@@ -211,9 +211,9 @@ Instruments from their vendors' pages only.
 - Updating a worker (`scripts/place.sh` does this now; by hand it is): send the commit's files, build with
   `MC_VERSION=$(scripts/version.sh)`, then run the new `mc-agent start --name NAME` there (on Windows from the
   desktop session, with `--any-network`); it replaces the program and restarts the worker, and the pairing stays.
-  On Windows build over ssh: a build started through the old skill's `mctl exec` said it finished but left the
-  old program in the target folder, and the reinstall then put the old program back. Check the built file's time
-  or contents before installing; the version number alone doesn't tell two builds of one commit count apart.
+  Run `start` outside the worker it replaces (a systemd unit of its own on Linux, a scheduled task of its own on
+  Windows, as `place.sh` does), or the restart cuts it off halfway. Check the built file's time or contents before
+  installing; the version number alone doesn't tell two builds of one commit apart.
 
 ## Candidates from the comparison with similar tools (2026-11-11; none approved)
 
