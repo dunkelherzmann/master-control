@@ -146,8 +146,11 @@ impl WindowsDesktop {
 /// Where Explorer keeps the virtual desktops: their ids in order, the one shown, and the names given them.
 const DESKTOPS_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VirtualDesktops";
 
+/// A virtual desktop's id: a GUID's bytes as the registry stores them.
+type DesktopId = [u8; 16];
+
 /// The desktops' ids in order, and the one shown.
-fn virtual_desktops() -> Result<(Vec<[u8; 16]>, Option<[u8; 16]>)> {
+fn virtual_desktops() -> Result<(Vec<DesktopId>, Option<DesktopId>)> {
     let ids: Vec<[u8; 16]> = registry_bytes(DESKTOPS_KEY, "VirtualDesktopIDs").unwrap_or_default().as_chunks::<16>().0.to_vec();
     let current = registry_bytes(DESKTOPS_KEY, "CurrentVirtualDesktop").and_then(|bytes| <[u8; 16]>::try_from(bytes.as_slice()).ok());
     // A session that never made a second desktop lists none: it has the one.
