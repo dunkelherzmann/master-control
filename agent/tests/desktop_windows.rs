@@ -11,11 +11,11 @@ use std::time::{Duration, Instant};
 
 use common::{decode_base64, desktop_turn, png_pixel, Test};
 use serde_json::{json, Value};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateSolidBrush};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, SendMessageW, DispatchMessageW, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage, MSG,
+    CreateWindowExW, DefWindowProcW, GetWindowRect, IsIconic, IsZoomed, SendMessageW, DispatchMessageW, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage, MSG,
     WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WS_CHILD, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
     WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
@@ -293,6 +293,131 @@ fn clicks_arrive_where_they_were_aimed() {
 }
 
 #[test]
+fn a_click_with_keys_held_has_them_down_around_the_button_only() {
+    let (_turn, test, fixture) = start("mc test: held click");
+    const CONTROL: u32 = 0x11;
+    const SHIFT: u32 = 0x10;
+    let answer = test.tool("click", json!({"x": 450, "y": 325, "window": fixture.title, "hold": "ctrl"}));
+    assert_eq!(answer["held"], "ctrl");
+    let seen: Vec<Seen> = fixture.take().into_iter().filter(|event| !matches!(event, Seen::Move { .. })).collect();
+    assert_eq!(seen, [Seen::KeyDown(CONTROL), Seen::Button { what: "left down", x: 450, y: 325 }, Seen::Button { what: "left up", x: 450, y: 325 }, Seen::KeyUp(CONTROL)]);
+    test.tool("click", json!({"x": 450, "y": 325, "window": fixture.title, "hold": "ctrl+shift"}));
+    assert_eq!(fixture.keys_down(), [CONTROL, SHIFT]);
+    // Nothing is left held: a plain key types its plain character.
+    test.tool("key", json!({"keys": "x", "window": fixture.title}));
+    assert_eq!(fixture.typed(), "x");
+    assert_eq!(test.refused("click", json!({"x": 450, "y": 325, "hold": "a"})), (400, "bad_input".into()));
+}
+
+/// Where the system itself says the window is, and whether it is minimized or maximized: not the agent's reading.
+fn system_says(fixture: &Fixture) -> ((i32, i32, i32, i32), bool, bool) {
+    let handle = fixture.window as HWND;
+    let mut frame = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    unsafe { GetWindowRect(handle, &mut frame) };
+    let (minimized, maximized) = unsafe { (IsIconic(handle) != 0, IsZoomed(handle) != 0) };
+    ((frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top), minimized, maximized)
+}
+
+#[test]
+fn a_window_is_moved_sized_minimized_maximized_and_restored() {
+    let (_turn, test, fixture) = start("mc test: arrange");
+    let placed = test.tool("arrange", json!({"window": fixture.title, "x": 300, "y": 220, "width": 420, "height": 260}));
+    assert_eq!((&placed["window"]["x"], &placed["window"]["y"], &placed["window"]["width"], &placed["window"]["height"]), (&json!(300), &json!(220), &json!(420), &json!(260)), "{placed}");
+    assert_eq!(system_says(&fixture), ((300, 220, 420, 260), false, false));
+    test.tool("arrange", json!({"window": fixture.title, "y": 240}));
+    assert_eq!(system_says(&fixture).0, (300, 240, 420, 260), "what isn't given stays");
+
+    let minimized = test.tool("arrange", json!({"window": fixture.title, "state": "minimized"}));
+    assert_eq!((minimized["window"]["minimized"].clone(), system_says(&fixture).1), (json!(true), true), "{minimized}");
+    let restored = test.tool("arrange", json!({"window": fixture.title, "state": "normal"}));
+    assert_eq!((restored["window"]["minimized"].clone(), system_says(&fixture)), (json!(false), ((300, 240, 420, 260), false, false)), "{restored}");
+
+    let maximized = test.tool("arrange", json!({"window": fixture.title, "state": "maximized"}));
+    let screen = test.tool("windows", json!({}))["screen"].clone();
+    assert!(system_says(&fixture).2, "the system says maximized: {maximized}");
+    assert!(maximized["window"]["width"].as_i64().unwrap() >= screen["width"].as_i64().unwrap() / 2, "{maximized}");
+    // A maximized window given a place is restored first.
+    test.tool("arrange", json!({"window": fixture.title, "x": 250, "y": 200, "width": 400, "height": 300}));
+    assert_eq!(system_says(&fixture), ((250, 200, 400, 300), false, false));
+
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title})), (400, "bad_input".into()));
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title, "state": "minimized", "x": 5})), (400, "bad_input".into()));
+    assert_eq!(test.refused("arrange", json!({"window": "no such window anywhere", "x": 5})), (404, "window_not_found".into()));
+}
+
+#[test]
+fn virtual_desktops_are_created_switched_and_removed_and_the_first_is_shown_again() {
+    let (_turn, test, _fixture) = start("mc test: desktops");
+    let before = test.tool("desktops", json!({}));
+    let count = before["desktops"].as_array().unwrap().len();
+    let home = before["current"].as_u64().expect("a desktop is shown");
+    let act = || {
+        let mut said = serde_json::Map::new();
+        said.insert("created".into(), test.tool("desktops", json!({"action": "create"})));
+        said.insert("home".into(), test.tool("desktops", json!({"action": "switch", "number": home})));
+        said.insert("new".into(), test.tool("desktops", json!({"action": "switch", "number": count + 1})));
+        said.insert("removed".into(), test.tool("desktops", json!({"action": "remove", "number": count + 1})));
+        Value::Object(said)
+    };
+    let outcome = act();
+    // Whatever happened, the desktop that was shown is shown again.
+    let now = test.tool("desktops", json!({}));
+    if now["current"] != home {
+        test.tool("desktops", json!({"action": "switch", "number": home}));
+    }
+    assert_eq!(outcome["created"]["desktops"].as_array().unwrap().len(), count + 1, "{outcome}");
+    assert_eq!(outcome["home"]["current"], home, "{outcome}");
+    assert_eq!(outcome["new"]["current"], count + 1, "{outcome}");
+    assert_eq!(outcome["removed"]["desktops"].as_array().unwrap().len(), count, "{outcome}");
+    assert_eq!(test.tool("desktops", json!({}))["current"], home);
+    assert_eq!(test.refused("desktops", json!({"action": "switch", "number": 0})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "remove", "number": count + 5})), (400, "bad_input".into()));
+}
+
+/// A Start menu shortcut of the test's own, removed when the test ends.
+struct Shortcut(std::path::PathBuf);
+
+impl Drop for Shortcut {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+#[test]
+fn an_app_is_launched_by_its_start_menu_name_and_its_window_awaited() {
+    let (_turn, test, _fixture) = start("mc test: launcher");
+    let name = format!("MC Test App {}", std::process::id());
+    let programs = std::path::PathBuf::from(std::env::var("APPDATA").unwrap()).join("Microsoft\\Windows\\Start Menu\\Programs");
+    let shortcut = Shortcut(programs.join(format!("{name}.lnk")));
+    // A window that is PowerShell's: a form titled for the test, which the test closes.
+    let form = "Add-Type -AssemblyName System.Windows.Forms; $f = New-Object Windows.Forms.Form; $f.Text = 'mc test: launched'; [void]$f.ShowDialog()";
+    let made = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-Command", &format!("$s = (New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath = 'powershell.exe'; $s.Arguments = '-NoProfile -WindowStyle Hidden -Command \"{}\"'; $s.Save()", shortcut.0.display(), form.replace('\'', "''"))])
+        .status()
+        .unwrap();
+    assert!(made.success() && shortcut.0.exists());
+
+    // The Start menu takes a few seconds to list a new shortcut.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut listed = test.tool("apps", json!({"name": name}));
+    while listed["apps"].as_array().unwrap().is_empty() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(500));
+        listed = test.tool("apps", json!({"name": name}));
+    }
+    assert_eq!(listed["apps"].as_array().unwrap().len(), 1, "{listed}");
+    assert!(test.tool("apps", json!({}))["apps"].as_array().unwrap().len() > 5, "the Start menu lists the system's apps too");
+    let launched = test.tool("launch", json!({"name": name.to_lowercase(), "wait_s": 60}));
+    // The first new window may be the terminal PowerShell starts in before it hides; the form is the shortcut's own.
+    assert_eq!(launched["app"]["name"], json!(name), "{launched}");
+    assert!(launched["window"]["id"].is_u64(), "a new window opened: {launched}");
+    let form = test.tool("wait_for", json!({"window": "mc test: launched", "timeout_s": 60}));
+    let window = form["window"]["id"].as_u64().unwrap() as usize as HWND;
+    unsafe { PostMessageW(window, WM_CLOSE, 0, 0) };
+    assert_eq!(test.tool("wait_for", json!({"window": "mc test: launched", "gone": true}))["gone"], true);
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+}
+
+#[test]
 fn a_drag_presses_travels_and_releases() {
     let (_turn, test, fixture) = start("mc test: drag");
     let answer = test.tool("drag", json!({"from_x": 250, "from_y": 190, "to_x": 600, "to_y": 450, "window": fixture.title}));
@@ -445,14 +570,20 @@ fn the_tree_names_what_is_in_a_window_and_elements_can_be_clicked() {
     assert_eq!((&clicked["delivered"], &clicked["at"]), (&json!(true), &json!({"x": 280, "y": 185})));
     assert!(fixture.take().contains(&Seen::Command(101)));
 
-    // Clicking the field puts the keyboard in it; what is typed shows up as its value.
+    // Clicking the field puts the keyboard in it; what is typed shows up as its value. `clear` empties it first
+    // (a plain Windows text field has no Ctrl+A), `caret` puts the text at either end of what is there.
     test.tool("click", json!({"element": field["id"]}));
-    // A plain Windows text field has no Ctrl+A; Home and Shift+End select its line.
-    test.tool("key", json!({"keys": "home", "window": fixture.title}));
-    test.tool("key", json!({"keys": "shift+end", "window": fixture.title}));
-    test.tool("type_text", json!({"text": "typed by the test", "window": fixture.title}));
+    test.tool("type_text", json!({"text": "typed by the test", "clear": true, "window": fixture.title}));
     let after = test.tool("find", json!({"window": fixture.title, "role": "text"}));
     assert_eq!((&after["elements"][0]["value"], &after["elements"][0]["focused"]), (&json!("typed by the test"), &json!(true)));
+    test.tool("type_text", json!({"text": "<", "caret": "start", "window": fixture.title}));
+    test.tool("type_text", json!({"text": ">", "caret": "end", "window": fixture.title}));
+    assert_eq!(test.tool("find", json!({"window": fixture.title, "role": "text"}))["elements"][0]["value"], "<typed by the test>");
+
+    // The compact view keeps the controls and leaves out the label.
+    let compact = test.tool("tree", json!({"window": fixture.title, "interactive": true}));
+    let kept: Vec<&str> = compact["elements"].as_array().unwrap().iter().map(|element| element["role"].as_str().unwrap()).collect();
+    assert!(["button", "text", "check_box", "combo_box"].iter().all(|role| kept.contains(role)) && !kept.contains(&"label") && !kept.contains(&"window"), "{compact}");
 
     assert_eq!(test.refused("click", json!({"element": "9999.1"})), (409, "element_gone".into()));
     assert_eq!(test.refused("click", json!({"element": format!("{}.9999", tree["tree"])})), (409, "element_gone".into()));

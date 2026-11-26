@@ -11,7 +11,7 @@ use x11rb::protocol::xproto::{
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 const SHIFT_L: u32 = 0xffe1;
 
@@ -62,6 +62,20 @@ impl X11Desktop {
     /// Whether a window manager that follows EWMH is running.
     fn window_manager(&self) -> bool {
         !self.property_numbers(self.root, "_NET_SUPPORTING_WM_CHECK").is_empty()
+    }
+
+    /// Asks the window manager for something about a window (EWMH): a message to the root window.
+    fn ask(&self, window: Window, kind: &str, data: [u32; 5]) -> Result<()> {
+        let event = ClientMessageEvent::new(32, window, self.atom(kind)?, data);
+        self.connection.send_event(false, self.root, EventMask::SUBSTRUCTURE_REDIRECT | EventMask::SUBSTRUCTURE_NOTIFY, event).map_err(failed)?;
+        self.settle()
+    }
+
+    /// Adds (1) or removes (0) both maximized states: EWMH's _NET_WM_STATE message.
+    fn maximized(&self, window: Window, on: bool) -> Result<()> {
+        let (vertical, horizontal) = (self.atom("_NET_WM_STATE_MAXIMIZED_VERT")?, self.atom("_NET_WM_STATE_MAXIMIZED_HORZ")?);
+        // 2 at the end: the request comes from a tool acting for the user.
+        self.ask(window, "_NET_WM_STATE", [u32::from(on), vertical, horizontal, 2, 0])
     }
 
     /// Waits for the server to have handled everything sent so far.
@@ -257,6 +271,77 @@ impl Desktop for X11Desktop {
             self.connection.set_input_focus(InputFocus::POINTER_ROOT, window, x11rb::CURRENT_TIME).map_err(failed)?;
         }
         self.settle()
+    }
+
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        let id = window.id as Window;
+        if !self.window_manager() {
+            let place = ConfigureWindowAux::new().x(frame.x).y(frame.y).width(frame.width).height(frame.height);
+            self.connection.configure_window(id, &place).map_err(failed)?;
+            return self.settle();
+        }
+        if window.minimized {
+            self.focus(window.id)?;
+        }
+        self.maximized(id, false)?;
+        // Static gravity: the position is the window's own, as `windows` gives it, not its frame's. Bits 8 to 11 say
+        // x, y, width and height are all given; 2 << 12, that a tool acting for the user asks.
+        let flags = 10 | (0xf << 8) | (2 << 12);
+        self.ask(id, "_NET_MOVERESIZE_WINDOW", [flags, frame.x as u32, frame.y as u32, frame.width, frame.height])
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        if !self.window_manager() {
+            return Err(DesktopError::not_supported("no window manager runs on this X display, and without one windows can't be minimized or maximized; arrange still moves and sizes them"));
+        }
+        let id = window.id as Window;
+        match state {
+            // ICCCM's WM_CHANGE_STATE with IconicState (3).
+            WindowState::Minimized => self.ask(id, "WM_CHANGE_STATE", [3, 0, 0, 0, 0]),
+            WindowState::Maximized => {
+                if window.minimized {
+                    self.focus(window.id)?;
+                }
+                self.maximized(id, true)
+            }
+            WindowState::Normal => {
+                if window.minimized {
+                    self.focus(window.id)?;
+                }
+                self.maximized(id, false)
+            }
+        }
+    }
+
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        let count = self.property_numbers(self.root, "_NET_NUMBER_OF_DESKTOPS").first().copied();
+        let Some(count) = count.filter(|_| self.window_manager()) else {
+            return Err(DesktopError::not_supported("no window manager that keeps virtual desktops runs on this X display"));
+        };
+        let current = self.property_numbers(self.root, "_NET_CURRENT_DESKTOP").first().copied();
+        // The names, each ended by a zero byte; there may be fewer than there are desktops.
+        let names = self.property(self.root, "_NET_DESKTOP_NAMES");
+        let mut names = names.split(|byte| *byte == 0).map(|name| String::from_utf8_lossy(name).into_owned());
+        Ok((0..count).map(|index| VirtualDesktop { name: names.next().unwrap_or_default(), current: Some(index) == current }).collect())
+    }
+
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        self.desktops()?;
+        self.ask(self.root, "_NET_CURRENT_DESKTOP", [index as u32, x11rb::CURRENT_TIME, 0, 0, 0])
+    }
+
+    fn create_desktop(&self) -> Result<()> {
+        let count = self.desktops()?.len() as u32;
+        self.ask(self.root, "_NET_NUMBER_OF_DESKTOPS", [count + 1, 0, 0, 0, 0])
+    }
+
+    fn remove_desktop(&self, index: usize) -> Result<()> {
+        // EWMH can only say how many there are: the last one goes.
+        let count = self.desktops()?.len();
+        if index + 1 != count {
+            return Err(DesktopError::not_supported("on X11 only the last desktop can be removed (window managers are told only how many there are)"));
+        }
+        self.ask(self.root, "_NET_NUMBER_OF_DESKTOPS", [count as u32 - 1, 0, 0, 0, 0])
     }
 
     fn pointer(&self) -> Result<(i32, i32)> {

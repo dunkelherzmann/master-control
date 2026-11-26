@@ -13,7 +13,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, OpenInputDesktop};
-use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
@@ -22,11 +22,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE,
 };
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 pub struct WindowsDesktop;
 
@@ -124,6 +125,90 @@ fn open_clipboard() -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
     Err(last_error("the clipboard is held by another program"))
+}
+
+impl WindowsDesktop {
+    /// Presses a chord and lets every key go, last first.
+    fn shortcut(&self, chord: &[Key]) -> Result<()> {
+        let mut down = Vec::new();
+        let pressed = chord.iter().try_for_each(|key| {
+            self.key(*key, true)?;
+            down.push(*key);
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            Ok::<(), DesktopError>(())
+        });
+        let released: Vec<_> = down.iter().rev().map(|key| self.key(*key, false)).collect();
+        pressed?;
+        released.into_iter().collect()
+    }
+}
+
+/// Where Explorer keeps the virtual desktops: their ids in order, the one shown, and the names given them.
+const DESKTOPS_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\VirtualDesktops";
+
+/// A virtual desktop's id: a GUID's bytes as the registry stores them.
+type DesktopId = [u8; 16];
+
+/// The desktops' ids in order, and the one shown.
+fn virtual_desktops() -> Result<(Vec<DesktopId>, Option<DesktopId>)> {
+    let ids: Vec<[u8; 16]> = registry_bytes(DESKTOPS_KEY, "VirtualDesktopIDs").unwrap_or_default().as_chunks::<16>().0.to_vec();
+    let current = registry_bytes(DESKTOPS_KEY, "CurrentVirtualDesktop").and_then(|bytes| <[u8; 16]>::try_from(bytes.as_slice()).ok());
+    // A session that never made a second desktop lists none: it has the one.
+    if ids.is_empty() {
+        return Ok((vec![current.unwrap_or([0; 16])], Some(current.unwrap_or([0; 16]))));
+    }
+    Ok((ids, current))
+}
+
+/// A GUID's bytes as the registry names its key: {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}, the first three parts
+/// stored little-endian.
+fn guid_text(bytes: &[u8; 16]) -> String {
+    format!(
+        "{{{:08X}-{:04X}-{:04X}-{:02X}{:02X}-{:02X}{:02X}{:02X}{:02X}{:02X}{:02X}}}",
+        u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        u16::from_le_bytes([bytes[4], bytes[5]]),
+        u16::from_le_bytes([bytes[6], bytes[7]]),
+        bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15]
+    )
+}
+
+/// A value of the user's registry, as its bytes; None when there is none.
+fn registry_bytes(key: &str, value: &str) -> Option<Vec<u8>> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_CURRENT_USER, RRF_RT_ANY};
+    let (key, value) = (wide(key), wide(value));
+    let mut size = 0u32;
+    // SAFETY: the names are zero-ended; the first call asks the size, the second fills a buffer of that size.
+    unsafe {
+        if RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr(), RRF_RT_ANY, null_mut(), null_mut(), &mut size) != 0 {
+            return None;
+        }
+        let mut bytes = vec![0u8; size as usize];
+        if RegGetValueW(HKEY_CURRENT_USER, key.as_ptr(), value.as_ptr(), RRF_RT_ANY, null_mut(), bytes.as_mut_ptr().cast(), &mut size) != 0 {
+            return None;
+        }
+        bytes.truncate(size as usize);
+        Some(bytes)
+    }
+}
+
+fn registry_string(key: &str, value: &str) -> Option<String> {
+    let bytes = registry_bytes(key, value)?;
+    let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|pair| u16::from_le_bytes(*pair)).take_while(|unit| *unit != 0).collect();
+    Some(String::from_utf16_lossy(&units))
+}
+
+fn wide(text: &str) -> Vec<u16> {
+    text.encode_utf16().chain(Some(0)).collect()
+}
+
+/// The window's handle, if it still exists.
+fn live(window: &WindowInfo) -> Result<HWND> {
+    let handle = window.id as usize as HWND;
+    // SAFETY: a plain call; the system checks the handle.
+    if unsafe { IsWindow(handle) } == 0 {
+        return Err(DesktopError::failed("Windows: the window is gone"));
+    }
+    Ok(handle)
 }
 
 struct Listing {
@@ -268,8 +353,97 @@ impl Desktop for WindowsDesktop {
             let _ = self.send(&[mouse(MOUSEEVENTF_MOVE, 0)]);
             SetForegroundWindow(window);
             BringWindowToTop(window);
+            // Refused all the same (another app has just taken the foreground, or holds the keyboard): joined to the
+            // input of the thread in front for a moment, this thread counts as that one, which may give it away.
+            let front = GetForegroundWindow();
+            if front != window && !front.is_null() {
+                let ours = GetCurrentThreadId();
+                let theirs = GetWindowThreadProcessId(front, null_mut());
+                if theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0 {
+                    SetForegroundWindow(window);
+                    BringWindowToTop(window);
+                    AttachThreadInput(ours, theirs, 0);
+                }
+            }
         }
         Ok(())
+    }
+
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        let handle = live(window)?;
+        // SAFETY: plain calls on a handle the system checks; the rectangles are locals.
+        unsafe {
+            if IsIconic(handle) != 0 || IsZoomed(handle) != 0 {
+                ShowWindow(handle, SW_RESTORE);
+            }
+            // `windows` gives the frame as drawn; SetWindowPos takes the rectangle with the invisible border around it.
+            let (mut outer, mut drawn): (RECT, RECT) = (zeroed(), zeroed());
+            GetWindowRect(handle, &mut outer);
+            if DwmGetWindowAttribute(handle, DWMWA_EXTENDED_FRAME_BOUNDS as u32, (&mut drawn as *mut RECT).cast(), size_of::<RECT>() as u32) != 0 {
+                drawn = outer;
+            }
+            let (left, top) = (drawn.left - outer.left, drawn.top - outer.top);
+            let (right, bottom) = (outer.right - drawn.right, outer.bottom - drawn.bottom);
+            let width = frame.width as i32 + left + right;
+            let height = frame.height as i32 + top + bottom;
+            if SetWindowPos(handle, null_mut(), frame.x - left, frame.y - top, width, height, SWP_NOZORDER | SWP_NOACTIVATE) == 0 {
+                return Err(last_error("the window couldn't be moved"));
+            }
+        }
+        Ok(())
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        let handle = live(window)?;
+        let command = match state {
+            WindowState::Normal => SW_RESTORE,
+            WindowState::Minimized => SW_MINIMIZE,
+            WindowState::Maximized => SW_MAXIMIZE,
+        };
+        // SAFETY: a plain call on a handle the system checks. Its answer is whether the window was visible before.
+        unsafe { ShowWindow(handle, command) };
+        Ok(())
+    }
+
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        let (ids, current) = virtual_desktops()?;
+        Ok(ids
+            .iter()
+            .map(|id| VirtualDesktop { name: registry_string(&format!("{DESKTOPS_KEY}\\Desktops\\{}", guid_text(id)), "Name").unwrap_or_default(), current: Some(*id) == current })
+            .collect())
+    }
+
+    // Windows offers no published way to change desktops but its own shortcuts, which it documents: Win+Ctrl+Left
+    // and Right switch, Win+Ctrl+D adds one, Win+Ctrl+F4 closes the one shown.
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        let (ids, current) = virtual_desktops()?;
+        let from = current.and_then(|current| ids.iter().position(|id| *id == current)).ok_or_else(|| DesktopError::failed("Windows: which desktop is shown can't be read"))?;
+        let toward = if index > from { Key::Right } else { Key::Left };
+        for _ in 0..from.abs_diff(index) {
+            self.shortcut(&[Key::Meta, Key::Ctrl, toward])?;
+            // Each switch slides; one sent during the slide is lost.
+            std::thread::sleep(std::time::Duration::from_millis(350));
+        }
+        Ok(())
+    }
+
+    fn create_desktop(&self) -> Result<()> {
+        self.shortcut(&[Key::Meta, Key::Ctrl, Key::Char('d')])
+    }
+
+    fn remove_desktop(&self, index: usize) -> Result<()> {
+        let (ids, current) = virtual_desktops()?;
+        if current != ids.get(index).copied() {
+            self.switch_desktop(index)?;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            while virtual_desktops()?.1 != ids.get(index).copied() {
+                if std::time::Instant::now() >= deadline {
+                    return Err(DesktopError::failed("Windows: the desktop to remove couldn't be shown first"));
+                }
+                std::thread::sleep(std::time::Duration::from_millis(100));
+            }
+        }
+        self.shortcut(&[Key::Meta, Key::Ctrl, Key::F(4)])
     }
 
     fn pointer(&self) -> Result<(i32, i32)> {
@@ -412,5 +586,15 @@ impl Desktop for WindowsDesktop {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_desktop_id_reads_as_the_registry_names_its_key() {
+        // The current desktop's bytes on the test machine, and the key Explorer made for it.
+        let bytes = [0x78, 0x3a, 0x07, 0x98, 0xd1, 0x55, 0xa5, 0x46, 0x89, 0x30, 0x93, 0xa7, 0x3f, 0xcc, 0x0b, 0x3b];
+        assert_eq!(super::guid_text(&bytes), "{98073A78-55D1-46A5-8930-93A73FCC0B3B}");
     }
 }

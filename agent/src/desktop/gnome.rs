@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use zbus::blocking::Connection;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 pub const UUID: &str = "master-control@dunkelherzmann.github.io";
 pub const METADATA: &str = include_str!("../../../linux/gnome-extension/metadata.json");
@@ -18,7 +18,7 @@ pub const EXTENSION: &str = include_str!("../../../linux/gnome-extension/extensi
 const NAME: &str = "io.github.dunkelherzmann.MasterControl";
 const PATH: &str = "/io/github/dunkelherzmann/MasterControl";
 /// The extension's `API`: raised with every change to its methods.
-const API: u32 = 2;
+const API: u32 = 3;
 
 fn failed<E: std::fmt::Display>(error: E) -> DesktopError {
     DesktopError::failed(format!("GNOME Shell: {error}"))
@@ -58,6 +58,13 @@ pub fn shell_runs() -> bool {
 
 pub struct GnomeDesktop {
     connection: Connection,
+}
+
+/// The shell's workspaces: their names (empty when unnamed) in order, and the one shown.
+#[derive(Deserialize)]
+struct Workspaces {
+    active: usize,
+    names: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -116,6 +123,14 @@ impl GnomeDesktop {
 
     fn act(&self, method: &str, body: &(impl serde::Serialize + zbus::zvariant::DynamicType)) -> Result<()> {
         self.connection.call_method(Some(NAME), PATH, Some(NAME), method, body).map_err(refused)?;
+        Ok(())
+    }
+
+    fn workspace(&self, action: &str, index: usize) -> Result<()> {
+        let done: bool = self.call("Workspace", &(action, index as i32))?;
+        if !done {
+            return Err(DesktopError::failed(format!("GNOME Shell didn't {action} the workspace")));
+        }
         Ok(())
     }
 
@@ -184,6 +199,45 @@ impl Desktop for GnomeDesktop {
             return Err(DesktopError::gone("there is no such window now"));
         }
         Ok(())
+    }
+
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        let found: bool = self.call("Place", &(window.id, frame.x, frame.y, frame.width as i32, frame.height as i32))?;
+        if !found {
+            return Err(DesktopError::gone("there is no such window now"));
+        }
+        Ok(())
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        let name = match state {
+            WindowState::Normal => "normal",
+            WindowState::Minimized => "minimized",
+            WindowState::Maximized => "maximized",
+        };
+        let found: bool = self.call("SetState", &(window.id, name))?;
+        if !found {
+            return Err(DesktopError::gone("there is no such window now"));
+        }
+        Ok(())
+    }
+
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        let json: String = self.call("Workspaces", &())?;
+        let listed: Workspaces = serde_json::from_str(&json).map_err(failed)?;
+        Ok(listed.names.into_iter().enumerate().map(|(index, name)| VirtualDesktop { name, current: index == listed.active }).collect())
+    }
+
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        self.workspace("switch", index)
+    }
+
+    fn create_desktop(&self) -> Result<()> {
+        self.workspace("create", 0)
+    }
+
+    fn remove_desktop(&self, index: usize) -> Result<()> {
+        self.workspace("remove", index)
     }
 
     fn pointer(&self) -> Result<(i32, i32)> {

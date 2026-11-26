@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use objc::runtime::Object;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 type Id = *mut Object;
 
@@ -33,6 +33,19 @@ struct CgRect {
     origin: Point,
     width: f64,
     height: f64,
+}
+
+// How the runtime describes these structures, so messages answering them are sent the right way.
+unsafe impl objc::Encode for Point {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGPoint=dd}") }
+    }
+}
+
+unsafe impl objc::Encode for CgRect {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGRect={CGPoint=dd}{CGSize=dd}}") }
+    }
 }
 
 #[link(name = "AppKit", kind = "framework")]
@@ -429,6 +442,102 @@ impl Desktop for MacDesktop {
         Ok(())
     }
 
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        self.may_send_input()?;
+        pooled(|| unsafe {
+            in_window(window, |element| {
+                restore(element);
+                set_frame(element, frame)
+            })
+        })
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        self.may_send_input()?;
+        pooled(|| unsafe {
+            in_window(window, |element| match state {
+                WindowState::Minimized => set_flag(element, "AXMinimized", true),
+                WindowState::Normal => {
+                    restore(element);
+                    Ok(())
+                }
+                WindowState::Maximized => {
+                    restore(element);
+                    let frame = frame_of(element).unwrap_or(window.frame);
+                    set_frame(element, work_area(frame))
+                }
+            })
+        })
+    }
+
+    fn hidden_window(&self, id: u64) -> Option<WindowInfo> {
+        pooled(|| unsafe {
+            // 0: every window, off screen too.
+            let list = CGWindowListCopyWindowInfo(0, 0);
+            if list.is_null() {
+                return None;
+            }
+            let count: usize = msg_send![list, count];
+            let mut found = None;
+            for index in 0..count {
+                let entry: Id = msg_send![list, objectAtIndex: index];
+                let value = |key: &str| -> Id { msg_send![entry, objectForKey: text(key)] };
+                let number = |object: Id| -> f64 { if object.is_null() { 0.0 } else { msg_send![object, doubleValue] } };
+                if number(value("kCGWindowNumber")) as u64 != id || number(value("kCGWindowLayer")) != 0.0 || number(value("kCGWindowIsOnscreen")) != 0.0 {
+                    continue;
+                }
+                let bounds = value("kCGWindowBounds");
+                let part = |key: &str| -> f64 { if bounds.is_null() { 0.0 } else { number(msg_send![bounds, objectForKey: text(key)]) } };
+                let window = WindowInfo {
+                    id,
+                    title: string_of(value("kCGWindowName")),
+                    app: string_of(value("kCGWindowOwnerName")),
+                    pid: (number(value("kCGWindowOwnerPID")) as i32).max(0) as u32,
+                    frame: Rect { x: part("X") as i32, y: part("Y") as i32, width: part("Width") as u32, height: part("Height") as u32 },
+                    focused: false,
+                    minimized: true,
+                };
+                // Off screen for another reason (a hidden app, a window kept for later) is not minimized: asked of the
+                // window itself.
+                let minimized = in_window(&window, |element| Ok(flag_attribute(element, "AXMinimized", false))).unwrap_or(false);
+                found = minimized.then_some(window);
+                break;
+            }
+            CFRelease(list as *const c_void);
+            found
+        })
+    }
+
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        Ok(spaces()?.into_iter().map(|space| VirtualDesktop { name: if space.full_screen { "full screen".into() } else { String::new() }, current: space.current }).collect())
+    }
+
+    // macOS publishes no way to change Spaces but its own shortcuts: Control-Left and Control-Right ("Move left a
+    // space", on unless the user turned them off in Keyboard Shortcuts > Mission Control). They move on the screen
+    // with the menu bar.
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        self.may_send_input()?;
+        let spaces = spaces()?;
+        let main = spaces.first().map(|space| space.display.clone()).unwrap_or_default();
+        let on_main: Vec<&Space> = spaces.iter().filter(|space| space.display == main).collect();
+        let target = spaces.get(index).ok_or_else(|| DesktopError::failed("macOS: there is no such Space"))?;
+        if target.display != main {
+            return Err(DesktopError::not_supported("only the Spaces of the screen with the menu bar can be switched to"));
+        }
+        let from = on_main.iter().position(|space| space.current).unwrap_or(0);
+        let to = on_main.iter().position(|space| space.id == target.id).unwrap_or(from);
+        let toward = if to > from { Key::Right } else { Key::Left };
+        for _ in 0..from.abs_diff(to) {
+            self.key(Key::Ctrl, true)?;
+            let pressed = self.key(toward, true).and_then(|()| self.key(toward, false));
+            self.key(Key::Ctrl, false)?;
+            pressed?;
+            // Each switch slides; one sent during the slide is lost.
+            std::thread::sleep(std::time::Duration::from_millis(450));
+        }
+        Ok(())
+    }
+
     fn pointer(&self) -> Result<(i32, i32)> {
         // SAFETY: an empty event carries the pointer's place; it is released at once.
         let at = unsafe {
@@ -728,6 +837,98 @@ unsafe fn in_window<T>(window: &WindowInfo, with: impl FnOnce(*mut c_void) -> Re
     }
 }
 
+/// Brings a window back from the Dock and out of full screen.
+///
+/// SAFETY: `element` is a live accessibility window.
+unsafe fn restore(element: *mut c_void) {
+    unsafe {
+        if flag_attribute(element, "AXMinimized", false) {
+            let _ = set_flag(element, "AXMinimized", false);
+        }
+        if flag_attribute(element, "AXFullScreen", false) {
+            let _ = set_flag(element, "AXFullScreen", false);
+            // Leaving full screen is animated; the window can't be placed until it is over.
+            std::thread::sleep(std::time::Duration::from_millis(900));
+        }
+    }
+}
+
+/// SAFETY: `element` is a live accessibility element.
+unsafe fn set_flag(element: *mut c_void, name: &str, on: bool) -> Result<()> {
+    unsafe {
+        let value: Id = msg_send![class!(NSNumber), numberWithBool: if on { objc::runtime::YES } else { objc::runtime::NO }];
+        match AXUIElementSetAttributeValue(element, text(name), value) {
+            0 => Ok(()),
+            code => Err(DesktopError::failed(format!("macOS: the window refused {name} (accessibility error {code})"))),
+        }
+    }
+}
+
+/// Moves and sizes a window: place, then size, then place again (a window grown past the screen's edge is pushed
+/// back by the system).
+///
+/// SAFETY: `element` is a live accessibility window.
+unsafe fn set_frame(element: *mut c_void, frame: Rect) -> Result<()> {
+    unsafe {
+        let at = Point { x: f64::from(frame.x), y: f64::from(frame.y) };
+        let extent = Point { x: f64::from(frame.width), y: f64::from(frame.height) };
+        // 1 and 2: the kinds of value that hold a point and a size.
+        let set = |name: &str, kind: u32, value: &Point| -> i32 {
+            let boxed = AXValueCreate(kind, (value as *const Point).cast());
+            if boxed.is_null() {
+                return -1;
+            }
+            let code = AXUIElementSetAttributeValue(element, text(name), boxed as Id);
+            CFRelease(boxed);
+            code
+        };
+        let codes = [set("AXPosition", 1, &at), set("AXSize", 2, &extent), set("AXPosition", 1, &at)];
+        match codes.iter().find(|code| **code != 0) {
+            None => Ok(()),
+            Some(code) => Err(DesktopError::failed(format!("macOS: the window couldn't be moved or sized (accessibility error {code})"))),
+        }
+    }
+}
+
+/// The work area of the screen a frame is mostly on: the screen without the menu bar and the Dock, in desktop
+/// points (from the top left of the main display).
+fn work_area(frame: Rect) -> Rect {
+    pooled(|| unsafe {
+        let screens: Id = msg_send![class!(NSScreen), screens];
+        let count: usize = if screens.is_null() { 0 } else { msg_send![screens, count] };
+        // AppKit counts from the bottom left of the main display (the first screen), upwards.
+        let main_height = if count > 0 {
+            let main: Id = msg_send![screens, objectAtIndex: 0usize];
+            let whole: CgRect = msg_send![main, frame];
+            whole.height
+        } else {
+            0.0
+        };
+        let middle = (f64::from(frame.x) + f64::from(frame.width) / 2.0, f64::from(frame.y) + f64::from(frame.height) / 2.0);
+        let mut chosen = None;
+        for index in 0..count {
+            let screen: Id = msg_send![screens, objectAtIndex: index];
+            let whole: CgRect = msg_send![screen, frame];
+            let visible: CgRect = msg_send![screen, visibleFrame];
+            let top = main_height - (whole.origin.y + whole.height);
+            let inside = middle.0 >= whole.origin.x && middle.0 < whole.origin.x + whole.width && middle.1 >= top && middle.1 < top + whole.height;
+            let area = Rect {
+                x: visible.origin.x.round() as i32,
+                y: (main_height - (visible.origin.y + visible.height)).round() as i32,
+                width: visible.width.round() as u32,
+                height: visible.height.round() as u32,
+            };
+            if inside || chosen.is_none() {
+                chosen = Some(area);
+            }
+            if inside {
+                break;
+            }
+        }
+        chosen.unwrap_or(frame)
+    })
+}
+
 /// The window layer of the dialogs macOS shows on an app's behalf (`kCGModalPanelWindowLevel`).
 const SYSTEM_DIALOG_LAYER: f64 = 8.0;
 
@@ -777,6 +978,60 @@ fn window_number(element: *mut c_void) -> Option<u64> {
     let mut number = 0u32;
     // SAFETY: the element is live and the number a local.
     (unsafe { (*lookup)?(element, &mut number) } == 0 && number != 0).then_some(u64::from(number))
+}
+
+/// One Space, as the window server lists them: per screen, in order.
+#[derive(Debug, Clone)]
+struct Space {
+    id: u64,
+    display: String,
+    current: bool,
+    full_screen: bool,
+}
+
+/// The Spaces of every screen, the menu bar's screen first. Read through the window server's own calls, which
+/// macOS has but doesn't publish (Mission Control and the Dock use them).
+fn spaces() -> Result<Vec<Space>> {
+    type Connection = unsafe extern "C" fn() -> i32;
+    type Copy = unsafe extern "C" fn(i32) -> Id;
+    static CALLS: std::sync::OnceLock<Option<(Connection, Copy)>> = std::sync::OnceLock::new();
+    let calls = CALLS.get_or_init(|| {
+        // SAFETY: looks names up among the libraries already loaded (AppKit brings the window server's); a missing
+        // name gives null. When present, the calls have had these shapes in every release that has them.
+        unsafe {
+            let connection = libc::dlsym(libc::RTLD_DEFAULT, c"CGSMainConnectionID".as_ptr());
+            let copy = libc::dlsym(libc::RTLD_DEFAULT, c"CGSCopyManagedDisplaySpaces".as_ptr());
+            (!connection.is_null() && !copy.is_null()).then(|| (std::mem::transmute::<*mut c_void, Connection>(connection), std::mem::transmute::<*mut c_void, Copy>(copy)))
+        }
+    });
+    let (connection, copy) = calls.ok_or_else(|| DesktopError::not_supported("this macOS doesn't let Spaces be read"))?;
+    pooled(|| unsafe {
+        let displays = copy(connection());
+        if displays.is_null() {
+            return Err(DesktopError::failed("macOS: the Spaces couldn't be read"));
+        }
+        let number = |object: Id| -> u64 { if object.is_null() { 0 } else { msg_send![object, unsignedLongLongValue] } };
+        let mut spaces = Vec::new();
+        let count: usize = msg_send![displays, count];
+        for index in 0..count {
+            let display: Id = msg_send![displays, objectAtIndex: index];
+            let value = |of: Id, key: &str| -> Id { msg_send![of, objectForKey: text(key)] };
+            let name = string_of(value(display, "Display Identifier"));
+            let current_space = value(display, "Current Space");
+            let current = if current_space.is_null() { 0 } else { number(value(current_space, "ManagedSpaceID")) };
+            let list = value(display, "Spaces");
+            let listed: usize = if list.is_null() { 0 } else { msg_send![list, count] };
+            for at in 0..listed {
+                let space: Id = msg_send![list, objectAtIndex: at];
+                let id = number(value(space, "ManagedSpaceID"));
+                // 0 is a desktop; 4 an app in full screen.
+                let full_screen = number(value(space, "type")) == 4;
+                spaces.push(Space { id, display: name.clone(), current: id == current, full_screen });
+            }
+        }
+        CFRelease(displays as *const c_void);
+        Ok(spaces)
+    })
 }
 
 /// What has the keyboard inside an app: its role and name, as the tree would tell them.

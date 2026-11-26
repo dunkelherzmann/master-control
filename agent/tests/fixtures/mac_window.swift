@@ -4,7 +4,7 @@ import AppKit
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)
-let window = NSWindow(contentRect: NSRect(x: 120, y: 320, width: 360, height: 220), styleMask: [.titled], backing: .buffered, defer: false)
+let window = NSWindow(contentRect: NSRect(x: 120, y: 320, width: 360, height: 220), styleMask: [.titled, .miniaturizable, .resizable], backing: .buffered, defer: false)
 window.title = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "mc test: tree"
 final class Presses: NSObject {
     var count = 0

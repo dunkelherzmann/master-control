@@ -17,7 +17,7 @@ Gio._promisify(Shell.Screenshot.prototype, 'screenshot_area');
 const NAME = 'io.github.dunkelherzmann.MasterControl';
 const PATH = '/io/github/dunkelherzmann/MasterControl';
 // Raised whenever a method changes, so the agent can tell an old copy still loaded in the shell.
-const API = 2;
+const API = 3;
 
 const INTERFACE = `
 <node>
@@ -26,6 +26,13 @@ const INTERFACE = `
     <method name="Screen"><arg type="s" direction="out" name="json"/></method>
     <method name="Windows"><arg type="s" direction="out" name="json"/></method>
     <method name="Activate"><arg type="t" direction="in" name="id"/><arg type="b" direction="out" name="done"/></method>
+    <method name="Place">
+      <arg type="t" direction="in" name="id"/><arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/>
+      <arg type="i" direction="in" name="width"/><arg type="i" direction="in" name="height"/><arg type="b" direction="out" name="done"/>
+    </method>
+    <method name="SetState"><arg type="t" direction="in" name="id"/><arg type="s" direction="in" name="state"/><arg type="b" direction="out" name="done"/></method>
+    <method name="Workspaces"><arg type="s" direction="out" name="json"/></method>
+    <method name="Workspace"><arg type="s" direction="in" name="action"/><arg type="i" direction="in" name="index"/><arg type="b" direction="out" name="done"/></method>
     <method name="Capture">
       <arg type="i" direction="in" name="x"/><arg type="i" direction="in" name="y"/>
       <arg type="i" direction="in" name="width"/><arg type="i" direction="in" name="height"/>
@@ -55,6 +62,10 @@ const LOCKED = 'the screen is locked: unlock the session first (as root: loginct
 function unlocked() {
     if (Main.sessionMode.isLocked)
         throw new Error(LOCKED);
+}
+
+function windowById(id) {
+    return global.get_window_actors().map(actor => actor.meta_window).find(window => window.get_id().toString() === id.toString());
 }
 
 function now() {
@@ -129,6 +140,67 @@ class Service {
         if (!window)
             return false;
         Main.activateWindow(window);
+        return true;
+    }
+
+    // The frame as Windows() gives it. A maximized or minimized window is restored first.
+    Place(id, x, y, width, height) {
+        unlocked();
+        const window = windowById(id);
+        if (!window)
+            return false;
+        if (window.minimized)
+            window.unminimize();
+        if (window.is_maximized())
+            window.unmaximize();
+        window.move_resize_frame(true, x, y, width, height);
+        return true;
+    }
+
+    SetState(id, state) {
+        unlocked();
+        const window = windowById(id);
+        if (!window)
+            return false;
+        if (state === 'minimized') {
+            window.minimize();
+        } else {
+            if (window.minimized)
+                window.unminimize();
+            if (state === 'maximized')
+                window.maximize();
+            else if (window.is_maximized())
+                window.unmaximize();
+        }
+        return true;
+    }
+
+    Workspaces() {
+        const manager = global.workspace_manager;
+        const names = [];
+        for (let index = 0; index < manager.get_n_workspaces(); index++)
+            names.push(Meta.prefs_get_workspace_name?.(index) ?? '');
+        return JSON.stringify({active: manager.get_active_workspace_index(), names, dynamic: Meta.prefs_get_dynamic_workspaces?.() ?? false});
+    }
+
+    // switch, create (a new one at the end) or remove, by index from 0.
+    Workspace(action, index) {
+        unlocked();
+        const manager = global.workspace_manager;
+        const time = global.get_current_time();
+        if (action === 'create') {
+            manager.append_new_workspace(false, time);
+            return true;
+        }
+        const workspace = manager.get_workspace_by_index(index);
+        if (!workspace)
+            return false;
+        if (action === 'switch')
+            workspace.activate(time);
+        else if (action === 'remove')
+            manager.remove_workspace(workspace, time);
+        else
+            return false;
         return true;
     }
 

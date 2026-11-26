@@ -314,6 +314,41 @@ fn clicks_arrive_where_they_were_aimed() {
 }
 
 #[test]
+fn a_click_with_keys_held_has_them_down_around_the_button_only() {
+    let (_turn, test, fixture) = start("mc test: held click", (100, 80, 400, 300));
+    let answer = test.tool("click", json!({"x": 300, "y": 230, "window": fixture.title, "hold": "ctrl"}));
+    assert_eq!(answer["held"], "ctrl");
+    let seen: Vec<Seen> = fixture.take().into_iter().filter(|event| !matches!(event, Seen::Motion { .. })).collect();
+    assert!(matches!(seen.as_slice(), [Seen::Key { symbol: 0xffe3, down: true, .. }, Seen::Button { number: 1, down: true, .. }, Seen::Button { number: 1, down: false, .. }, Seen::Key { symbol: 0xffe3, down: false, .. }]), "{seen:?}");
+    // The button arrived with Ctrl held, and nothing is left held afterwards.
+    test.tool("key", json!({"keys": "x", "window": fixture.title}));
+    assert_eq!(fixture.keys_down(), [(0x78, 0)]);
+    test.tool("click", json!({"x": 300, "y": 230, "hold": "ctrl+shift"}));
+    let downs: Vec<u32> = fixture.take().into_iter().filter_map(|event| if let Seen::Key { symbol, down: true, .. } = event { Some(symbol) } else { None }).collect();
+    assert_eq!(downs, [0xffe3, 0xffe1]);
+    assert_eq!(test.refused("click", json!({"x": 300, "y": 230, "hold": "a"})), (400, "bad_input".into()));
+    assert_eq!(fixture.take().iter().filter(|event| !matches!(event, Seen::Motion { .. })).count(), 0, "a refused hold sends nothing");
+}
+
+#[test]
+fn a_window_is_moved_and_sized_and_states_need_a_window_manager() {
+    let (_turn, test, fixture) = start("mc test: arrange", (100, 80, 400, 300));
+    let placed = test.tool("arrange", json!({"window": fixture.title, "x": 150, "y": 120, "width": 320, "height": 200}));
+    assert_eq!((&placed["window"]["x"], &placed["window"]["y"], &placed["window"]["width"], &placed["window"]["height"]), (&json!(150), &json!(120), &json!(320), &json!(200)), "{placed}");
+    // The X server itself says where it is: a click at the new corner reaches the window there.
+    test.tool("click", json!({"x": 155, "y": 125}));
+    assert_eq!(fixture.buttons()[0], (1, 155, 125, true));
+    test.tool("arrange", json!({"window": fixture.title, "width": 250}));
+    let now = test.tool("windows", json!({}));
+    assert_eq!((&find(&now, &fixture.title)["x"], &find(&now, &fixture.title)["width"]), (&json!(150), &json!(250)), "what isn't given stays");
+    // Xvfb here runs no window manager, and without one there is nothing to minimize or maximize to, and no
+    // virtual desktops.
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title, "state": "minimized"})), (501, "not_supported".into()));
+    assert_eq!(test.refused("desktops", json!({})), (501, "not_supported".into()));
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title})), (400, "bad_input".into()));
+}
+
+#[test]
 fn a_drag_presses_travels_and_releases() {
     let (_turn, test, fixture) = start("mc test: drag", (100, 80, 400, 300));
     let answer = test.tool("drag", json!({"from_x": 150, "from_y": 120, "to_x": 390, "to_y": 300, "window": fixture.title}));
@@ -522,6 +557,11 @@ fn the_tree_names_what_is_in_a_window_and_elements_can_be_clicked() {
     assert_eq!(test.tool("find", json!({"window": title, "name": "CANCEL"}))["elements"][0]["role"], "button");
     assert_eq!(test.tool("find", json!({"window": title, "value": "STAR"}))["elements"][0]["role"], "text");
     assert_eq!(test.tool("find", json!({"window": title, "role": "check_box"}))["elements"], json!([]));
+    // The compact view keeps the field and the buttons, and leaves out the label and the boxes around them.
+    let compact = test.tool("tree", json!({"window": title, "interactive": true}));
+    let roles: Vec<&str> = compact["elements"].as_array().unwrap().iter().map(|element| element["role"].as_str().unwrap()).collect();
+    assert_eq!(roles, ["text", "button", "button"], "{compact}");
+    assert_eq!(test.tool("find", json!({"window": title, "interactive": true, "role": "button"}))["elements"].as_array().unwrap().len(), 2);
     let limited = test.tool("tree", json!({"window": title, "max_elements": 2}));
     assert_eq!((limited["elements"].as_array().unwrap().len(), &limited["truncated"]), (2, &json!(true)));
 
@@ -541,12 +581,55 @@ fn the_tree_names_what_is_in_a_window_and_elements_can_be_clicked() {
     assert!(began.elapsed() >= Duration::from_secs(1) && began.elapsed() < Duration::from_secs(10));
     assert_eq!(test.refused("wait_for", json!({"window": title, "gone": true, "timeout_s": 1})), (408, "timed_out".into()));
 
+    // Emptied and typed again; then more put at the end, and Enter, which ends the dialog with what the field held.
+    test.tool("type_text", json!({"text": "cleared", "clear": true, "element": field["id"]}));
+    assert_eq!(test.tool("find", json!({"window": title, "role": "text"}))["elements"][0]["value"], "cleared");
+    test.tool("type_text", json!({"text": "start ", "caret": "start", "window": title}));
+    test.tool("type_text", json!({"text": " end", "caret": "end", "enter": true, "window": title}));
+    let output = app.wait_with_output_after(Duration::from_secs(15));
+    assert_eq!(output.trim(), "start cleared end");
+    assert_eq!(test.tool("wait_for", json!({"window": title, "gone": true}))["gone"], true);
+
     // Pressing OK by its id ends the dialog, which prints what the field held: the click landed on the button.
+    let mut app = dialog(title);
+    test.tool("wait_for", json!({"window": title, "role": "button", "name": "OK", "timeout_s": 60}));
+    let tree = test.tool("tree", json!({"window": title}));
+    let (ok, cancel) = (element(&tree, "button", "OK").clone(), element(&tree, "button", "Cancel").clone());
     test.tool("click", json!({"element": ok["id"]}));
     let output = app.wait_with_output_after(Duration::from_secs(15));
-    assert_eq!(output.trim(), "typed by the test é");
+    assert_eq!(output.trim(), "start");
     assert_eq!(test.tool("wait_for", json!({"window": title, "gone": true}))["gone"], true);
     assert_eq!(test.refused("click", json!({"element": cancel["id"]})), (409, "element_gone".into()), "the window closed");
+    drop(turn);
+}
+
+#[test]
+fn an_app_is_launched_by_its_name_and_its_window_awaited() {
+    let turn = desktop_turn();
+    private_display();
+    let test = Test::new();
+    // A desktop entry of the test's own, in a folder the agent is told to look in as well.
+    let folder = std::env::temp_dir().join(format!("mc-x11-apps-{}", std::process::id()));
+    std::fs::create_dir_all(&folder).unwrap();
+    let name = format!("MC Test Dialog {}", std::process::id());
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gtk_entry_dialog.py");
+    std::fs::write(folder.join("mc-test-dialog.desktop"), format!("[Desktop Entry]\nType=Application\nName={name}\nExec=python3 \"{fixture}\" \"mc test: launched\"\n")).unwrap();
+    std::fs::write(folder.join("mc-test-hidden.desktop"), format!("[Desktop Entry]\nType=Application\nName={name} hidden\nNoDisplay=true\nExec=true\n")).unwrap();
+    std::env::set_var("MC_APPS_FOLDERS", &folder);
+
+    let listed = test.tool("apps", json!({"name": name}));
+    assert_eq!(listed["apps"].as_array().unwrap().len(), 1, "the hidden entry isn't offered: {listed}");
+    let launched = test.tool("launch", json!({"name": name.to_lowercase(), "wait_s": 60}));
+    assert_eq!((&launched["app"]["name"], &launched["window"]["title"]), (&json!(name), &json!("mc test: launched")), "{launched}");
+    // The window is the app's own: it has the dialog's buttons. Cancel closes it.
+    let cancel = test.tool("wait_for", json!({"window": "mc test: launched", "role": "button", "name": "Cancel", "timeout_s": 30}));
+    test.tool("press", json!({"element": cancel["elements"][0]["id"]}));
+    assert_eq!(test.tool("wait_for", json!({"window": "mc test: launched", "gone": true}))["gone"], true);
+
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+    assert_eq!(test.refused("launch", json!({})), (400, "bad_input".into()));
+    std::env::remove_var("MC_APPS_FOLDERS");
+    let _ = std::fs::remove_dir_all(&folder);
     drop(turn);
 }
 

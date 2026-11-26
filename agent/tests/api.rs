@@ -174,7 +174,7 @@ fn status_describes_the_machine() {
     assert_eq!(status["capabilities"]["exec"], true);
     assert_eq!(status["capabilities"]["screen"], status["capabilities"]["input"]);
     assert_eq!(status["capabilities"]["observe"], cfg!(any(windows, target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))));
-    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
+    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
 }
 
 #[test]
@@ -483,7 +483,7 @@ fn mcp_over_http_lists_and_calls_the_tools() {
 
     let (_, listed) = test.mcp(json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
+    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
         assert!(tool["description"].as_str().unwrap().len() > 20);
@@ -671,6 +671,120 @@ fn exec_runs_with_admin_rights_when_asked_and_able() {
     }
 }
 
+/// The apps in the Applications folders are listed by name; one the test makes is started by it. The app is a
+/// script with no window, which only writes a file, so it runs only when asked for (MC_MAC_GUI_TESTS=1).
+#[cfg(target_os = "macos")]
+#[test]
+fn on_a_mac_apps_are_listed_and_launched_by_name() {
+    let test = Test::new();
+    let listed = test.tool("apps", json!({"name": "calculator"}));
+    assert!(listed["apps"].as_array().unwrap().iter().any(|app| app["id"] == "/System/Applications/Calculator.app"), "{listed}");
+    assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
+    if std::env::var_os("MC_MAC_GUI_TESTS").is_none() {
+        eprintln!("skipped launching: set MC_MAC_GUI_TESTS=1 to start a test app on this Mac");
+        return;
+    }
+    let folder = std::env::temp_dir().join(format!("mc-mac-apps-{}", std::process::id()));
+    let name = format!("MC Test App {}", std::process::id());
+    let bundle = folder.join(format!("{name}.app/Contents"));
+    let marker = folder.join("launched");
+    std::fs::create_dir_all(bundle.join("MacOS")).unwrap();
+    std::fs::write(bundle.join("Info.plist"), format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<plist version=\"1.0\"><dict><key>CFBundleExecutable</key><string>run</string><key>CFBundleIdentifier</key><string>io.github.dunkelherzmann.mctest{}</string><key>LSUIElement</key><true/></dict></plist>\n", std::process::id())).unwrap();
+    let script = bundle.join("MacOS/run");
+    std::fs::write(&script, format!("#!/bin/sh\necho launched > '{}'\n", marker.display())).unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::env::set_var("MC_APPS_FOLDERS", &folder);
+    let launched = test.tool("launch", json!({"name": name, "wait_s": 0}));
+    std::env::remove_var("MC_APPS_FOLDERS");
+    let deadline = Instant::now() + Duration::from_secs(15);
+    while !marker.exists() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let ran = marker.exists();
+    let _ = std::fs::remove_dir_all(&folder);
+    assert_eq!(launched["app"]["name"], json!(name), "{launched}");
+    assert!(ran, "the app ran: {launched}");
+}
+
+/// The Spaces are listed with the one shown; nothing is switched, since that would change the user's screen.
+#[cfg(target_os = "macos")]
+#[test]
+fn on_a_mac_the_spaces_are_listed() {
+    let test = Test::new();
+    let listed = test.tool("desktops", json!({}));
+    let desktops = listed["desktops"].as_array().unwrap();
+    assert!(!desktops.is_empty() && desktops.iter().any(|desktop| desktop["current"] == true), "{listed}");
+    assert_eq!(listed["current"], desktops.iter().position(|desktop| desktop["current"] == true).map(|index| index + 1).unwrap(), "{listed}");
+    assert_eq!(test.refused("desktops", json!({"action": "switch", "number": desktops.len() + 1})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "switch"})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "create"})), (501, "not_supported".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "rename"})), (400, "bad_input".into()));
+}
+
+/// The Mac window tests take turns: each compares the window list before and after, which the other's window moves.
+#[cfg(target_os = "macos")]
+fn mac_window_turn() -> std::sync::MutexGuard<'static, ()> {
+    static TURN: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// Moves, sizes, minimizes, restores and maximizes a real AppKit window of the test's own, through accessibility. It
+/// opens a window on the Mac's desktop without taking the keyboard, so it runs only when asked for:
+/// MC_MAC_GUI_TESTS=1, with the Accessibility permission granted to whatever runs the tests.
+#[cfg(target_os = "macos")]
+#[test]
+fn on_a_mac_a_window_is_moved_sized_minimized_and_restored() {
+    if std::env::var_os("MC_MAC_GUI_TESTS").is_none() {
+        eprintln!("skipped: set MC_MAC_GUI_TESTS=1 to open a test window on this Mac's desktop");
+        return;
+    }
+    let _turn = mac_window_turn();
+    let test = Test::new();
+    assert_eq!(test.tool("status", json!({}))["capabilities"]["input"], true, "grant Accessibility to the program running the tests");
+    let title = format!("mc test: arrange {}", std::process::id());
+    let fixture = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/mac_window.swift");
+    let mut window = std::process::Command::new("swift").args([fixture, &title]).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::null()).spawn().expect("swift runs the test window");
+    let arrange = || {
+        let found = test.post("/v1/wait_for", &json!({"window": title, "role": "button", "name": "Save", "timeout_s": 60}));
+        let id = found.1["window"]["id"].clone();
+        let mut said = serde_json::Map::new();
+        said.insert("placed".into(), test.post("/v1/arrange", &json!({"window": id, "x": 200, "y": 150, "width": 500, "height": 320})).1);
+        said.insert("moved only".into(), test.post("/v1/arrange", &json!({"window": id, "x": 260})).1);
+        said.insert("minimized".into(), test.post("/v1/arrange", &json!({"window": id, "state": "minimized"})).1);
+        said.insert("listed while minimized".into(), json!(test.tool("windows", json!({}))["windows"].as_array().unwrap().iter().any(|window| window["id"] == id)));
+        said.insert("restored".into(), test.post("/v1/arrange", &json!({"window": id, "state": "normal"})).1);
+        said.insert("maximized".into(), test.post("/v1/arrange", &json!({"window": id, "state": "maximized"})).1);
+        said.insert("screen".into(), test.tool("windows", json!({}))["screen"].clone());
+        said.insert("back".into(), test.post("/v1/arrange", &json!({"window": id, "x": 200, "y": 150, "width": 500, "height": 320})).1);
+        // Typing helpers in the background: emptied, then text put at the start and at the end.
+        let field = test.tool("find", json!({"window": id, "role": "text"}))["elements"][0]["id"].clone();
+        test.post("/v1/type_text", &json!({"element": field, "text": "middle", "clear": true, "background": true}));
+        test.post("/v1/type_text", &json!({"window": id, "text": "<", "caret": "start", "background": true}));
+        test.post("/v1/type_text", &json!({"window": id, "text": ">", "caret": "end", "background": true}));
+        said.insert("typed".into(), test.tool("find", json!({"window": id, "role": "text"}))["elements"][0]["value"].clone());
+        said.insert("compact".into(), test.tool("tree", json!({"window": id, "interactive": true}))["elements"].clone());
+        said.insert("in front".into(), json!(test.tool("windows", json!({}))["windows"].as_array().unwrap().iter().any(|window| window["id"] == id && window["focused"] == true)));
+        Value::Object(said)
+    };
+    let outcome = arrange();
+    let _ = window.kill();
+    let _ = window.wait();
+    let frame = |answer: &Value| (answer["window"]["x"].clone(), answer["window"]["y"].clone(), answer["window"]["width"].clone(), answer["window"]["height"].clone());
+    assert_eq!(frame(&outcome["placed"]), (json!(200), json!(150), json!(500), json!(320)), "{outcome}");
+    assert!(outcome["placed"]["asked"].is_null(), "{outcome}");
+    assert_eq!(frame(&outcome["moved only"]), (json!(260), json!(150), json!(500), json!(320)), "what isn't given stays: {outcome}");
+    assert_eq!(outcome["minimized"]["window"]["minimized"], true, "{outcome}");
+    assert_eq!(outcome["listed while minimized"], false, "macOS lists only what is on screen; the id still reaches it");
+    assert_eq!((&outcome["restored"]["window"]["minimized"], &outcome["restored"]["window"]["x"]), (&json!(false), &json!(260)), "{outcome}");
+    let (maximized, screen) = (&outcome["maximized"]["window"], &outcome["screen"]);
+    assert!(maximized["width"].as_i64().unwrap() >= screen["width"].as_i64().unwrap() - 200 && maximized["height"].as_i64().unwrap() >= screen["height"].as_i64().unwrap() - 200, "fills the work area: {outcome}");
+    assert_eq!(frame(&outcome["back"]), (json!(200), json!(150), json!(500), json!(320)), "a maximized window placed is restored: {outcome}");
+    assert_eq!(outcome["typed"], "<middle>", "clear and caret, in the background: {outcome}");
+    let roles: Vec<&str> = outcome["compact"].as_array().unwrap().iter().map(|element| element["role"].as_str().unwrap()).collect();
+    assert!(roles.contains(&"button") && roles.contains(&"text") && roles.contains(&"check_box") && !roles.contains(&"label") && !roles.contains(&"window"), "the compact view: {roles:?}");
+    assert_eq!(outcome["in front"], false, "arranging doesn't bring the window forward");
+}
+
 /// Reads the contents of a real AppKit window. It opens a small window on the Mac's desktop (without taking the
 /// keyboard) and sends no input, so it runs only when asked for: MC_MAC_GUI_TESTS=1, with the Accessibility
 /// permission granted to whatever runs the tests.
@@ -681,6 +795,7 @@ fn on_a_mac_the_tree_names_what_is_in_a_window() {
         eprintln!("skipped: set MC_MAC_GUI_TESTS=1 to open a test window on this Mac's desktop");
         return;
     }
+    let _turn = mac_window_turn();
     let test = Test::new();
     assert_eq!(test.tool("status", json!({}))["capabilities"]["input"], true, "grant Accessibility to the program running the tests");
     let title = format!("mc test: tree {}", std::process::id());

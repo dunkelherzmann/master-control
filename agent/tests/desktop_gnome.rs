@@ -101,3 +101,56 @@ fn a_wayland_window_is_listed_pictured_clicked_and_typed_into() {
     drop(app.stdin.take());
     let _ = app.wait();
 }
+
+#[test]
+fn a_wayland_window_is_arranged_and_the_workspaces_are_switched() {
+    if !wanted() {
+        return;
+    }
+    let _turn = desktop_turn();
+    let test = Test::new();
+    let title = format!("mc gnome arrange {}", std::process::id());
+    let state_file = test.home.join("gtk-state.json");
+    let mut app = Command::new("python3")
+        .args([concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gtk_window.py"), &title, state_file.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("python3 with GTK 4 is needed for this test");
+    test.tool("wait_for", json!({"window": title, "role": "text", "timeout_s": 30}));
+    std::thread::sleep(Duration::from_millis(500));
+    let before = test.tool("desktops", json!({}));
+    let home = before["current"].clone();
+    let act = || {
+        let mut said = serde_json::Map::new();
+        said.insert("placed".into(), test.tool("arrange", json!({"window": title, "x": 120, "y": 140, "width": 520, "height": 380})));
+        said.insert("minimized".into(), test.tool("arrange", json!({"window": title, "state": "minimized"})));
+        said.insert("restored".into(), test.tool("arrange", json!({"window": title, "state": "normal"})));
+        said.insert("maximized".into(), test.tool("arrange", json!({"window": title, "state": "maximized"})));
+        said.insert("back".into(), test.tool("arrange", json!({"window": title, "x": 120, "y": 140, "width": 520, "height": 380})));
+        let count = before["desktops"].as_array().unwrap().len();
+        if count > 1 {
+            let other = if home == 1 { 2 } else { 1 };
+            said.insert("switched".into(), test.tool("desktops", json!({"action": "switch", "number": other})));
+        }
+        Value::Object(said)
+    };
+    let outcome = act();
+    let now = test.tool("desktops", json!({}));
+    if now["current"] != home {
+        test.tool("desktops", json!({"action": "switch", "number": home}));
+    }
+    drop(app.stdin.take());
+    let _ = app.wait();
+    let frame = |answer: &Value| (answer["window"]["x"].clone(), answer["window"]["y"].clone(), answer["window"]["width"].clone(), answer["window"]["height"].clone());
+    assert_eq!(frame(&outcome["placed"]), (json!(120), json!(140), json!(520), json!(380)), "{outcome}");
+    assert_eq!(outcome["minimized"]["window"]["minimized"], true, "{outcome}");
+    assert_eq!(outcome["restored"]["window"]["minimized"], false, "{outcome}");
+    assert!(outcome["maximized"]["window"]["width"].as_u64().unwrap() > 520, "{outcome}");
+    assert_eq!(frame(&outcome["back"]), (json!(120), json!(140), json!(520), json!(380)), "{outcome}");
+    if let Some(switched) = outcome.get("switched") {
+        assert_ne!(switched["current"], home, "{outcome}");
+    }
+    assert_eq!(test.tool("desktops", json!({}))["current"], home, "the first workspace is shown again");
+}

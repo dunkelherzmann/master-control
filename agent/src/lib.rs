@@ -5,6 +5,7 @@
 #[macro_use]
 extern crate objc;
 
+mod apps;
 mod audit;
 pub mod cli;
 mod control;

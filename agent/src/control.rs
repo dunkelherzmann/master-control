@@ -9,7 +9,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, WindowInfo};
+use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, VirtualDesktop, WindowInfo, WindowState};
 use crate::tools::{number, required_text, text, ToolError};
 use crate::{state, Agent};
 
@@ -374,6 +374,228 @@ pub fn focus(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     Ok(delivered(Some(window), json!({})))
 }
 
+/// What `arrange` is asked for: a state, a frame (any part left out stays as it is), or a frame in the normal state.
+#[derive(Debug, PartialEq)]
+struct Arrangement {
+    state: Option<WindowState>,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+impl Arrangement {
+    fn from(args: &Value) -> Result<Arrangement, ToolError> {
+        let state = match text(args, "state")? {
+            None => None,
+            Some("normal") => Some(WindowState::Normal),
+            Some("minimized") => Some(WindowState::Minimized),
+            Some("maximized") => Some(WindowState::Maximized),
+            Some(other) => return Err(ToolError::bad(format!("state is normal, minimized or maximized, not {other}"))),
+        };
+        let place = |name: &str| signed(args, name).map(|value| value.map(|value| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32));
+        let size = |name: &str| match signed(args, name)? {
+            None => Ok(None),
+            Some(value) if (1..=100_000).contains(&value) => Ok(Some(value as u32)),
+            Some(_) => Err(ToolError::bad(format!("{name} must be between 1 and 100000 pixels"))),
+        };
+        let arrangement = Arrangement { state, x: place("x")?, y: place("y")?, width: size("width")?, height: size("height")? };
+        let placed = arrangement.placed();
+        match arrangement.state {
+            None if !placed => Err(ToolError::bad("say what to do: x, y, width and/or height, or state")),
+            Some(WindowState::Minimized | WindowState::Maximized) if placed => {
+                Err(ToolError::bad("a minimized or maximized window has no place of its own: give the state, or the place, not both"))
+            }
+            _ => Ok(arrangement),
+        }
+    }
+
+    fn placed(&self) -> bool {
+        self.x.is_some() || self.y.is_some() || self.width.is_some() || self.height.is_some()
+    }
+
+    /// The frame asked for, the parts not given taken from where the window is.
+    fn frame(&self, now: Rect) -> Rect {
+        Rect { x: self.x.unwrap_or(now.x), y: self.y.unwrap_or(now.y), width: self.width.unwrap_or(now.width), height: self.height.unwrap_or(now.height) }
+    }
+}
+
+/// Moves, sizes, minimizes, maximizes or restores a window, and answers with the window as it then is.
+pub fn arrange(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let arrangement = Arrangement::from(args)?;
+    let desktop = open()?;
+    let window = match find_window(desktop.as_ref(), &args["window"]) {
+        Err(error) if error.code == "window_not_found" => args["window"].as_u64().and_then(|id| desktop.hidden_window(id)).ok_or(error)?,
+        found => found?,
+    };
+    let current = |desktop: &dyn Desktop| desktop.windows().ok().and_then(|windows| windows.into_iter().find(|candidate| candidate.id == window.id)).or_else(|| desktop.hidden_window(window.id));
+    if let Some(state) = arrangement.state {
+        desktop.set_window_state(&window, state)?;
+    }
+    let mut asked = None;
+    if arrangement.placed() {
+        // Read again: a window just restored is somewhere else than it was.
+        let from = if arrangement.state.is_some() { wait_until(|| current(desktop.as_ref()), |now| !now.minimized).unwrap_or(window.clone()) } else { window.clone() };
+        let frame = arrangement.frame(from.frame);
+        desktop.place_window(&from, frame)?;
+        asked = Some(frame);
+    }
+    let before = window.frame;
+    let now = wait_until(
+        || current(desktop.as_ref()),
+        |now| match (arrangement.state, asked) {
+            (_, Some(frame)) => now.frame == frame && !now.minimized,
+            (Some(WindowState::Minimized), None) => now.minimized,
+            (Some(WindowState::Maximized), None) => !now.minimized && now.frame != before,
+            (Some(WindowState::Normal), None) => !now.minimized,
+            (None, None) => true,
+        },
+    )
+    .ok_or_else(|| ToolError { code: "window_not_found", message: format!("the window \"{}\" closed", window.title) })?;
+    if arrangement.state == Some(WindowState::Minimized) && !now.minimized {
+        return Err(ToolError::failed(format!("the window \"{}\" was asked to minimize and didn't", window.title)));
+    }
+    if matches!(arrangement.state, Some(WindowState::Normal | WindowState::Maximized)) && now.minimized {
+        return Err(ToolError::failed(format!("the window \"{}\" was asked to come back from the Dock or the taskbar and didn't", window.title)));
+    }
+    let mut answer = json!({});
+    if let Some(frame) = asked.filter(|frame| *frame != now.frame) {
+        // Said, not hidden: windows have smallest sizes, and some apps or window managers keep to sizes of their own.
+        answer["asked"] = json!({ "x": frame.x, "y": frame.y, "width": frame.width, "height": frame.height });
+        answer["note"] = json!("the window isn't exactly where it was asked to be: the app or the window manager kept it to a place or size it allows");
+    }
+    Ok(delivered(Some(now), answer))
+}
+
+/// What the desktops must show once a change is done.
+enum Shown {
+    Current(usize),
+    More,
+    Fewer,
+}
+
+fn desktops_json(desktops: &[VirtualDesktop]) -> Value {
+    let list: Vec<Value> = desktops.iter().enumerate().map(|(index, desktop)| json!({ "number": index + 1, "name": desktop.name, "current": desktop.current })).collect();
+    let current = desktops.iter().position(|desktop| desktop.current).map(|index| index + 1);
+    json!({ "desktops": list, "current": current })
+}
+
+/// The virtual desktops: listed, or one switched to, added or removed, and listed as they then are.
+pub fn desktops(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let action = text(args, "action")?.unwrap_or("list");
+    let desktop = open()?;
+    let before = desktop.desktops()?;
+    let numbered = || -> Result<usize, ToolError> {
+        let number = number(args, "number")?.ok_or_else(|| ToolError::bad(format!("number is required to {action} a desktop: its place in the list, from 1")))? as usize;
+        if number == 0 || number > before.len() {
+            return Err(ToolError::bad(format!("there are {} desktops; number {number} isn't one", before.len())));
+        }
+        Ok(number - 1)
+    };
+    // What the list must show once the system has done it: it animates the change, which takes a moment.
+    let count = before.len();
+    let expected = match action {
+        "list" => return Ok(desktops_json(&before)),
+        "switch" => {
+            let index = numbered()?;
+            desktop.switch_desktop(index)?;
+            Shown::Current(index)
+        }
+        "create" => {
+            desktop.create_desktop()?;
+            Shown::More
+        }
+        "remove" => {
+            let index = numbered()?;
+            if count == 1 {
+                return Err(ToolError::bad("that is the only desktop; there must always be one"));
+            }
+            desktop.remove_desktop(index)?;
+            Shown::Fewer
+        }
+        other => return Err(ToolError::bad(format!("action is list, switch, create or remove, not {other}"))),
+    };
+    let done = |now: &[VirtualDesktop]| match expected {
+        Shown::Current(index) => now.get(index).is_some_and(|desktop| desktop.current),
+        Shown::More => now.len() > count,
+        Shown::Fewer => now.len() < count,
+    };
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        let now = desktop.desktops()?;
+        if done(&now) {
+            let mut answer = desktops_json(&now);
+            answer["delivered"] = json!(true);
+            return Ok(answer);
+        }
+        if Instant::now() >= deadline {
+            return Err(ToolError::failed(format!("the desktops were asked to {action} and the system didn't show it within 4 s: {}", desktops_json(&now))));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The apps the system's launcher offers, by name: all of them, or those whose name contains `name`.
+pub fn apps(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = text(args, "name")?.unwrap_or("").to_lowercase();
+    let apps = crate::apps::list()?;
+    let listed: Vec<Value> = apps.iter().filter(|app| app.name.to_lowercase().contains(&wanted)).map(|app| json!({ "name": app.name, "id": app.id })).collect();
+    Ok(json!({ "apps": listed }))
+}
+
+/// Starts an app by its name in the launcher, and waits for a window of it to open.
+pub fn launch(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = text(args, "name")?.filter(|name| !name.is_empty()).ok_or_else(|| ToolError::bad("name is required: the app's name as the launcher shows it, or its id from `apps`"))?;
+    let wait = number(args, "wait_s")?.unwrap_or(10);
+    if wait > 60 {
+        return Err(ToolError::bad("wait_s is at most 60"));
+    }
+    let apps = crate::apps::list()?;
+    let app = crate::apps::choose(&apps, wanted)?;
+    // The windows there were before, so the new one can be told apart. Without a desktop there is none to wait for.
+    let desktop = desktop::open().ok();
+    let before: Vec<u64> = desktop.as_ref().and_then(|desktop| desktop.windows().ok()).unwrap_or_default().iter().map(|window| window.id).collect();
+    crate::apps::start(app)?;
+    let mut answer = json!({ "app": { "name": app.name, "id": app.id }, "delivered": true });
+    let Some(desktop) = desktop.filter(|_| wait > 0) else {
+        return Ok(answer);
+    };
+    let deadline = Instant::now() + Duration::from_secs(wait);
+    loop {
+        // A window that has a title: apps put up empty helper windows first.
+        let new = desktop.windows().ok().and_then(|windows| windows.into_iter().find(|window| !before.contains(&window.id) && !window.title.is_empty()));
+        if let Some(window) = new {
+            answer["window"] = window_json(&window);
+            return Ok(answer);
+        }
+        if Instant::now() >= deadline {
+            answer["window"] = Value::Null;
+            answer["note"] = json!(format!("no new window opened within {wait} s: the app may still be starting, may have no window, or may have shown one it already had"));
+            return Ok(answer);
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
+/// The window as it is once `done` holds, or as it is after two seconds; None if it is gone for all that time. A
+/// window coming back from the Dock is listed nowhere for a moment while it animates.
+fn wait_until(read: impl Fn() -> Option<WindowInfo>, done: impl Fn(&WindowInfo) -> bool) -> Option<WindowInfo> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut last = None;
+    loop {
+        if let Some(now) = read() {
+            if done(&now) {
+                return Some(now);
+            }
+            last = Some(now);
+        }
+        if Instant::now() >= deadline {
+            return last;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 fn press(desktop: &dyn Desktop, button: Button, times: u32) -> Result<(), ToolError> {
     for index in 0..times {
         if index > 0 {
@@ -426,18 +648,52 @@ fn click_quietly(agent: &Agent, desktop: &dyn Desktop, args: &Value) -> Result<V
     Ok(delivered(Some(window), json!({ "at": { "x": point.0, "y": point.1 }, "background": true, "did": did })))
 }
 
+/// The modifier keys a click is to be made with (`hold`: "ctrl", "shift", "ctrl+shift"), checked to be modifiers.
+fn held_keys(args: &Value) -> Result<Vec<keys::Key>, ToolError> {
+    let Some(hold) = text(args, "hold")?.filter(|hold| !hold.is_empty()) else {
+        return Ok(Vec::new());
+    };
+    let chord = keys::parse_chord(hold).map_err(ToolError::bad)?;
+    if let Some(key) = chord.iter().find(|key| !key.is_modifier()) {
+        return Err(ToolError::bad(format!("hold takes modifier keys only (ctrl, shift, alt, cmd/win), not {key:?}")));
+    }
+    Ok(chord)
+}
+
+/// Runs `action` with the keys held down, and lets them go afterwards whatever happened: a modifier left held would
+/// change every key the user or the next tool presses.
+fn holding<T>(desktop: &dyn Desktop, held: &[keys::Key], action: impl FnOnce() -> Result<T, ToolError>) -> Result<T, ToolError> {
+    let mut down = Vec::new();
+    let pressed = held.iter().try_for_each(|key| {
+        desktop.key(*key, true)?;
+        down.push(*key);
+        std::thread::sleep(Duration::from_millis(10));
+        Ok::<(), DesktopError>(())
+    });
+    let outcome = pressed.map_err(ToolError::from).and_then(|()| action());
+    let released: Vec<_> = down.iter().rev().map(|key| desktop.key(*key, false)).collect();
+    let value = outcome?;
+    released.into_iter().collect::<Result<Vec<_>, _>>()?;
+    Ok(value)
+}
+
 fn click_with(agent: &Agent, args: &Value, button: Button, times: u32) -> Result<Value, ToolError> {
     let desktop = open()?;
+    let held = held_keys(args)?;
     if crate::tools::flag(args, "background")? {
-        if button != Button::Left || times != 1 {
-            return not_in_the_background(args, "a double, right or middle click").map(|()| Value::Null);
+        if button != Button::Left || times != 1 || !held.is_empty() {
+            return not_in_the_background(args, "a double, right, middle or held-key click").map(|()| Value::Null);
         }
         return click_quietly(agent, desktop.as_ref(), args);
     }
     let ((x, y), window) = aim(agent, desktop.as_ref(), args)?;
     move_to(desktop.as_ref(), x, y)?;
-    press(desktop.as_ref(), button, times)?;
-    Ok(delivered(window, json!({ "at": { "x": x, "y": y } })))
+    holding(desktop.as_ref(), &held, || press(desktop.as_ref(), button, times))?;
+    let mut answer = json!({ "at": { "x": x, "y": y } });
+    if !held.is_empty() {
+        answer["held"] = json!(text(args, "hold")?);
+    }
+    Ok(delivered(window, answer))
 }
 
 pub fn click(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -562,17 +818,77 @@ pub fn clipboard_set(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     Ok(json!({ "delivered": true, "characters": wanted.chars().count() }))
 }
 
-pub fn type_text(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
-    let text_given = required_text(args, "text")?;
-    let desktop = open()?;
-    if crate::tools::flag(args, "background")? {
-        let window = keyboard_target(agent, desktop.as_ref(), args, false)?;
-        desktop.quiet_text(&window, text_given)?;
-        return Ok(typed(desktop.as_ref(), window, json!({ "characters": text_given.chars().count(), "background": true })));
+/// Presses a chord: its keys down in order, then up in reverse, even when a later key failed.
+fn press_chord(desktop: &dyn Desktop, chord: &[keys::Key]) -> Result<(), ToolError> {
+    let (last, held) = chord.split_last().ok_or_else(|| ToolError::bad("no keys"))?;
+    holding(desktop, held, || {
+        desktop.key(*last, true)?;
+        std::thread::sleep(Duration::from_millis(10));
+        desktop.key(*last, false)?;
+        Ok(())
+    })?;
+    std::thread::sleep(Duration::from_millis(15));
+    Ok(())
+}
+
+/// The keys `type_text` presses around the text: before it, to empty the field or move the caret; after it, Enter.
+#[derive(Debug, PartialEq)]
+struct Around {
+    before: Vec<Vec<keys::Key>>,
+    after: Vec<Vec<keys::Key>>,
+}
+
+/// What `clear`, `caret` and `enter` ask for, in the keys of this system: Command on macOS, Ctrl elsewhere.
+fn around(args: &Value, mac: bool) -> Result<Around, ToolError> {
+    use keys::Key;
+    let mut before = Vec::new();
+    if crate::tools::flag(args, "clear")? {
+        // From the start to the end, selected, then deleted: Select All is a menu command some fields lack (a plain
+        // Windows text field has no Ctrl+A).
+        let (start, select_to_end) = if mac { (vec![Key::Meta, Key::Up], vec![Key::Meta, Key::Shift, Key::Down]) } else { (vec![Key::Ctrl, Key::Home], vec![Key::Ctrl, Key::Shift, Key::End]) };
+        before.extend([start, select_to_end, vec![Key::Backspace]]);
     }
-    let window = keyboard_target(agent, desktop.as_ref(), args, true)?;
-    desktop.text(text_given)?;
-    Ok(typed(desktop.as_ref(), window, json!({ "characters": text_given.chars().count() })))
+    match text(args, "caret")? {
+        None => {}
+        Some(_) if !before.is_empty() => return Err(ToolError::bad("give clear or caret, not both: a cleared field has nowhere else for the caret to be")),
+        Some("start") => before.push(if mac { vec![Key::Meta, Key::Up] } else { vec![Key::Ctrl, Key::Home] }),
+        Some("end") => before.push(if mac { vec![Key::Meta, Key::Down] } else { vec![Key::Ctrl, Key::End] }),
+        Some(other) => return Err(ToolError::bad(format!("caret is start or end, not {other}"))),
+    }
+    let after = if crate::tools::flag(args, "enter")? { vec![vec![Key::Enter]] } else { Vec::new() };
+    Ok(Around { before, after })
+}
+
+pub fn type_text(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let around = around(args, cfg!(target_os = "macos"))?;
+    let text_given = match text(args, "text")? {
+        Some(text) if !text.is_empty() => text,
+        // Only emptying a field, or only pressing Enter, needs no text.
+        _ if !around.before.is_empty() || !around.after.is_empty() => "",
+        _ => return Err(ToolError::bad("text is required")),
+    };
+    let desktop = open()?;
+    let background = crate::tools::flag(args, "background")?;
+    let window = keyboard_target(agent, desktop.as_ref(), args, !background)?;
+    let chord = |keys: &[keys::Key]| if background { desktop.quiet_chord(&window, keys).map_err(ToolError::from) } else { press_chord(desktop.as_ref(), keys) };
+    for keys in &around.before {
+        chord(keys)?;
+    }
+    if !text_given.is_empty() {
+        if background {
+            desktop.quiet_text(&window, text_given)?;
+        } else {
+            desktop.text(text_given)?;
+        }
+    }
+    for keys in &around.after {
+        chord(keys)?;
+    }
+    let mut answer = json!({ "characters": text_given.chars().count() });
+    if background {
+        answer["background"] = json!(true);
+    }
+    Ok(typed(desktop.as_ref(), window, answer))
 }
 
 pub fn key(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -593,19 +909,7 @@ pub fn key(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     let window = keyboard_target(agent, desktop.as_ref(), args, true)?;
     let owner = desktop.keyboard_owner(&window);
     for _ in 0..times {
-        let mut held = Vec::new();
-        let pressed = chord.iter().try_for_each(|key| {
-            desktop.key(*key, true)?;
-            held.push(*key);
-            std::thread::sleep(Duration::from_millis(10));
-            Ok::<(), DesktopError>(())
-        });
-        // Release what went down, in reverse, even when a later key failed: a modifier left held would change every
-        // key the user or the next tool presses.
-        let released: Vec<_> = held.iter().rev().map(|key| desktop.key(*key, false)).collect();
-        pressed?;
-        released.into_iter().collect::<Result<Vec<_>, _>>()?;
-        std::thread::sleep(Duration::from_millis(15));
+        press_chord(desktop.as_ref(), &chord)?;
     }
     // What had the keyboard before the keys went: after them it may be something else (a dialog they closed).
     let mut answer = json!({ "keys": required_text(args, "keys")?, "times": times });
@@ -622,21 +926,31 @@ struct Wanted {
     role: Option<String>,
     name: Option<String>,
     value: Option<String>,
+    /// Only what can be acted on: a control with a place on screen, or whatever has the keyboard.
+    interactive: bool,
 }
+
+/// The roles of the elements a person or an agent can act on.
+const INTERACTIVE: &[&str] = &[
+    "button", "text", "check_box", "radio_button", "combo_box", "menu_item", "list_item", "tree_item", "tab", "link",
+    "slider", "spinner", "scroll_bar", "cell", "menu_bar_item", "switch", "toggle_button", "split_button", "hyperlink",
+];
 
 impl Wanted {
     fn from(args: &Value) -> Result<Wanted, ToolError> {
         let lower = |name: &str| Ok::<_, ToolError>(text(args, name)?.filter(|text| !text.is_empty()).map(str::to_lowercase));
-        Ok(Wanted { role: lower("role")?, name: lower("name")?, value: lower("value")? })
+        Ok(Wanted { role: lower("role")?, name: lower("name")?, value: lower("value")?, interactive: crate::tools::flag(args, "interactive")? })
     }
 
     fn anything(&self) -> bool {
-        self.role.is_none() && self.name.is_none() && self.value.is_none()
+        self.role.is_none() && self.name.is_none() && self.value.is_none() && !self.interactive
     }
 
     /// The role must be the same; the name and value need only contain what was asked, in any case.
     fn matches(&self, element: &Element) -> bool {
-        self.role.as_ref().is_none_or(|role| element.role == *role)
+        let actionable = || element.focused || (INTERACTIVE.contains(&element.role.as_str()) && element.frame.is_some_and(|frame| frame.width > 0 && frame.height > 0));
+        (!self.interactive || actionable())
+            && self.role.as_ref().is_none_or(|role| element.role == *role)
             && self.name.as_ref().is_none_or(|name| element.name.to_lowercase().contains(name))
             && self.value.as_ref().is_none_or(|value| element.value.as_ref().is_some_and(|held| held.to_lowercase().contains(value)))
     }
@@ -706,9 +1020,10 @@ fn read_window(agent: &Agent, desktop: &dyn Desktop, window: &WindowInfo, limits
 }
 
 pub fn tree(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let wanted = Wanted::from(args)?;
     let desktop = open()?;
     let window = find_window(desktop.as_ref(), &args["window"])?;
-    read_window(agent, desktop.as_ref(), &window, limits(args)?, None)
+    read_window(agent, desktop.as_ref(), &window, limits(args)?, (!wanted.anything()).then_some(&wanted))
 }
 
 pub fn find(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
@@ -834,4 +1149,66 @@ pub fn expand(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
 
 pub fn select(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     act(agent, args, ElementAction::Select)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use keys::Key;
+
+    #[test]
+    fn typing_helpers_press_the_keys_of_each_system() {
+        let none = around(&json!({}), false).unwrap();
+        assert_eq!(none, Around { before: vec![], after: vec![] });
+        let clear = around(&json!({"clear": true, "enter": true}), false).unwrap();
+        assert_eq!(clear.before, [vec![Key::Ctrl, Key::Home], vec![Key::Ctrl, Key::Shift, Key::End], vec![Key::Backspace]]);
+        assert_eq!(clear.after, [vec![Key::Enter]]);
+        assert_eq!(around(&json!({"clear": true}), true).unwrap().before, [vec![Key::Meta, Key::Up], vec![Key::Meta, Key::Shift, Key::Down], vec![Key::Backspace]], "Command on macOS");
+        assert_eq!(around(&json!({"caret": "start"}), false).unwrap().before, [vec![Key::Ctrl, Key::Home]]);
+        assert_eq!(around(&json!({"caret": "end"}), false).unwrap().before, [vec![Key::Ctrl, Key::End]]);
+        assert_eq!(around(&json!({"caret": "start"}), true).unwrap().before, [vec![Key::Meta, Key::Up]]);
+        assert_eq!(around(&json!({"caret": "end"}), true).unwrap().before, [vec![Key::Meta, Key::Down]]);
+        assert_eq!(around(&json!({"caret": "middle"}), false).unwrap_err().code, "bad_input");
+        assert_eq!(around(&json!({"clear": true, "caret": "end"}), false).unwrap_err().code, "bad_input");
+        assert_eq!(around(&json!({"enter": "yes"}), false).unwrap_err().code, "bad_input");
+    }
+
+    #[test]
+    fn an_arrangement_is_a_state_or_a_place() {
+        let placed = Arrangement::from(&json!({"x": 10, "width": 300})).unwrap();
+        assert_eq!(placed.frame(Rect { x: 1, y: 2, width: 3, height: 4 }), Rect { x: 10, y: 2, width: 300, height: 4 }, "what isn't given stays");
+        assert_eq!(Arrangement::from(&json!({"state": "maximized"})).unwrap().state, Some(WindowState::Maximized));
+        let restored = Arrangement::from(&json!({"state": "normal", "x": 5, "y": 6})).unwrap();
+        assert_eq!((restored.state, restored.placed()), (Some(WindowState::Normal), true), "restored, then placed");
+        for wrong in [json!({}), json!({"state": "huge"}), json!({"state": "minimized", "x": 1}), json!({"state": "maximized", "width": 9}), json!({"width": 0}), json!({"height": -5}), json!({"x": "left"})] {
+            assert_eq!(Arrangement::from(&wrong).unwrap_err().code, "bad_input", "{wrong}");
+        }
+    }
+
+    #[test]
+    fn held_keys_are_modifiers_only() {
+        assert_eq!(held_keys(&json!({})).unwrap(), []);
+        assert_eq!(held_keys(&json!({"hold": "ctrl+shift"})).unwrap(), [Key::Ctrl, Key::Shift]);
+        assert_eq!(held_keys(&json!({"hold": "cmd"})).unwrap(), [Key::Meta]);
+        assert_eq!(held_keys(&json!({"hold": "ctrl+a"})).unwrap_err().code, "bad_input");
+        assert_eq!(held_keys(&json!({"hold": "nonsense"})).unwrap_err().code, "bad_input");
+    }
+
+    #[test]
+    fn the_compact_view_keeps_what_can_be_acted_on() {
+        let wanted = Wanted::from(&json!({"interactive": true})).unwrap();
+        assert!(!wanted.anything());
+        let place = Some(Rect { x: 1, y: 1, width: 10, height: 10 });
+        let element = |role: &str, frame: Option<Rect>, focused: bool| Element { role: role.into(), frame, focused, enabled: true, ..Element::default() };
+        assert!(wanted.matches(&element("button", place, false)));
+        assert!(wanted.matches(&element("text", place, false)));
+        assert!(!wanted.matches(&element("label", place, false)), "a label can't be acted on");
+        assert!(!wanted.matches(&element("pane", place, false)));
+        assert!(!wanted.matches(&element("button", None, false)), "a button with no place isn't shown");
+        assert!(!wanted.matches(&element("button", Some(Rect { x: 0, y: 0, width: 0, height: 5 }), false)));
+        assert!(wanted.matches(&element("pane", None, true)), "what has the keyboard always is");
+        let buttons = Wanted::from(&json!({"interactive": true, "role": "button"})).unwrap();
+        assert!(buttons.matches(&element("button", place, false)) && !buttons.matches(&element("text", place, false)));
+        assert!(Wanted::from(&json!({})).unwrap().anything(), "a plain tree filters nothing");
+    }
 }

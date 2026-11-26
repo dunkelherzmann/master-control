@@ -186,23 +186,58 @@ pub const TOOLS: &[Tool] = &[
         run: crate::control::focus,
     },
     Tool {
+        name: "arrange",
+        description: "Move, size, minimize, maximize or restore a window. Give x, y, width and/or height (desktop pixels, \
+                      the frame as `windows` reports it; what is left out stays), or `state`: normal, minimized or \
+                      maximized (the screen's work area). A minimized or maximized window given a place is restored \
+                      first. Answers with the window as it then is; `asked` is added when the app or the window manager \
+                      kept it to another place or size. The window isn't brought to the front.",
+        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has). A minimized window on macOS is found by its id."}, "x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number"}, "height": {"type": "number"}, "state": {"type": "string", "enum": ["normal", "minimized", "maximized"]}}), &["window"]),
+        run: crate::control::arrange,
+    },
+    Tool {
+        name: "apps",
+        description: "The apps the system's launcher offers (the Start menu on Windows, the Applications folders on macOS, \
+                      the desktop entries on Linux), by name and id. `name` keeps those whose name contains it.",
+        schema: || object(json!({"name": {"type": "string", "description": "Only the apps whose name contains this, in any case."}}), &[]),
+        run: crate::control::apps,
+    },
+    Tool {
+        name: "launch",
+        description: "Start an app by its name as the launcher shows it (exactly, in any case, or a part only one name \
+                      has) or its id from `apps`, the way the launcher would: in the user's own session and rights. \
+                      Waits up to `wait_s` (default 10, 0 not to wait) for a new window, and answers with it; `window` is \
+                      null if none opened in time. For a program with arguments, use exec.",
+        schema: || object(json!({"name": {"type": "string"}, "wait_s": {"type": "integer", "description": "Seconds to wait for its window. Default 10, at most 60."}}), &["name"]),
+        run: crate::control::launch,
+    },
+    Tool {
+        name: "desktops",
+        description: "The virtual desktops (workspaces on Linux, Spaces on macOS), numbered from 1, with the current one; or \
+                      `action`: switch to one, create one at the end, or remove one (its windows move to another), \
+                      by `number`. Answers with the desktops as they then are. On macOS only listing and switching \
+                      are offered.",
+        schema: || object(json!({"action": {"type": "string", "enum": ["list", "switch", "create", "remove"], "description": "Default list."}, "number": {"type": "integer", "description": "The desktop to switch to or remove, from 1."}}), &[]),
+        run: crate::control::desktops,
+    },
+    Tool {
         name: "click",
         description: "Click at a position. With `window`, that window is brought to the front first and the position \
                       must be inside it. With `background` (macOS) nothing comes to the front and the pointer stays \
                       where it is; `type_text` and `key` take it too.",
-        schema: || object(json!({"background": {"type": "boolean", "description": "macOS only: leave the pointer, the real keyboard and the window order alone. A click then presses what is at the point (or gives a text field the keyboard) through assistive technology; text and keys are handed to the window's app only."}, "element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}, "button": {"type": "string", "enum": ["left", "middle", "right"]}}), &[]),
+        schema: || object(json!({"hold": {"type": "string", "description": "Modifier keys held down during the click: ctrl, shift, alt, cmd/win, or several (ctrl+shift). Ctrl-click (cmd on macOS) adds an item to a selection; shift-click selects a range."}, "background": {"type": "boolean", "description": "macOS only: leave the pointer, the real keyboard and the window order alone. A click then presses what is at the point (or gives a text field the keyboard) through assistive technology; text and keys are handed to the window's app only."}, "element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}, "button": {"type": "string", "enum": ["left", "middle", "right"]}}), &[]),
         run: crate::control::click,
     },
     Tool {
         name: "double_click",
         description: "Double-click at a position.",
-        schema: || object(json!({"element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &[]),
+        schema: || object(json!({"hold": {"type": "string", "description": "Modifier keys held down during the click: ctrl, shift, alt, cmd/win, or several (ctrl+shift). Ctrl-click (cmd on macOS) adds an item to a selection; shift-click selects a range."}, "element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &[]),
         run: crate::control::double_click,
     },
     Tool {
         name: "right_click",
         description: "Click the right button at a position.",
-        schema: || object(json!({"element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &[]),
+        schema: || object(json!({"hold": {"type": "string", "description": "Modifier keys held down during the click: ctrl, shift, alt, cmd/win, or several (ctrl+shift). Ctrl-click (cmd on macOS) adds an item to a selection; shift-click selects a range."}, "element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &[]),
         run: crate::control::right_click,
     },
     Tool {
@@ -234,10 +269,11 @@ pub const TOOLS: &[Tool] = &[
     Tool {
         name: "type_text",
         description: "Type text into a window, whatever the keyboard layout. Give `window`, or an `element` to type \
-                      into; the window must take the focus, or nothing is typed. A line break presses Enter. The answer's \
-                      `into` names what had the keyboard, where the system can tell: sent is not the same as landed \
-                      where you meant.",
-        schema: || object(json!({"element": {"type": "string", "description": "An element id from tree or find to give the keyboard to first, so the keys go into it and not into whatever in the window had the keyboard. The window is then the element's own."}, "background": {"type": "boolean", "description": "macOS only: leave the pointer, the real keyboard and the window order alone. A click then presses what is at the point (or gives a text field the keyboard) through assistive technology; text and keys are handed to the window's app only."}, "text": {"type": "string"}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &["text"]),
+                      into; the window must take the focus, or nothing is typed. A line break presses Enter. `clear` \
+                      empties the field first, `caret` puts the caret at the start or the end of what is there, \
+                      `enter` presses Enter after. The answer's `into` names what had the keyboard, where the system \
+                      can tell: sent is not the same as landed where you meant.",
+        schema: || object(json!({"element": {"type": "string", "description": "An element id from tree or find to give the keyboard to first, so the keys go into it and not into whatever in the window had the keyboard. The window is then the element's own."}, "background": {"type": "boolean", "description": "macOS only: leave the pointer, the real keyboard and the window order alone. A click then presses what is at the point (or gives a text field the keyboard) through assistive technology; text and keys are handed to the window's app only."}, "text": {"type": "string", "description": "May be left out with clear or enter, to only empty the field or only press Enter."}, "clear": {"type": "boolean", "description": "Select everything in the field and delete it before typing."}, "caret": {"type": "string", "enum": ["start", "end"], "description": "Move the caret to the start or the end of the field's text before typing."}, "enter": {"type": "boolean", "description": "Press Enter after the text: submit a search, a form, a dialog."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}}), &[]),
         run: crate::control::type_text,
     },
     Tool {
@@ -263,14 +299,17 @@ pub const TOOLS: &[Tool] = &[
         name: "tree",
         description: "What is in a window, as assistive technology sees it: every element with an id, its depth, role, \
                       name, value and place in desktop pixels. `enabled` is given only when false and `focused` only \
-                      when true. An id can be passed as `element` to click, double_click, right_click and scroll.",
-        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has)."}, "max_depth": {"type": "integer"}, "max_elements": {"type": "integer", "description": "Stop after this many elements. Default 1000."}}), &["window"]),
+                      when true. An id can be passed as `element` to click, double_click, right_click and scroll. \
+                      `interactive` keeps only what can be acted on (controls with a place on screen, and what has \
+                      the keyboard): a much shorter answer for a busy window.",
+        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has)."}, "interactive": {"type": "boolean", "description": "Only the elements that can be acted on."}, "max_depth": {"type": "integer"}, "max_elements": {"type": "integer", "description": "Stop after this many elements. Default 1000."}}), &["window"]),
         run: crate::control::tree,
     },
     Tool {
         name: "find",
-        description: "The elements of a window that match a role, a name and/or a value.",
-        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has)."}, "role": {"type": "string", "description": "Exactly this role: button, text, label, check_box, menu_item, list_item, tab..."}, "name": {"type": "string", "description": "The name contains this, in any case."}, "value": {"type": "string", "description": "The value contains this, in any case."}, "max_depth": {"type": "integer"}, "max_elements": {"type": "integer", "description": "Stop after this many elements. Default 1000."}}), &["window"]),
+        description: "The elements of a window that match a role, a name and/or a value; with `interactive`, only \
+                      those that can be acted on.",
+        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has)."}, "interactive": {"type": "boolean", "description": "Only the elements that can be acted on."}, "role": {"type": "string", "description": "Exactly this role: button, text, label, check_box, menu_item, list_item, tab..."}, "name": {"type": "string", "description": "The name contains this, in any case."}, "value": {"type": "string", "description": "The value contains this, in any case."}, "max_depth": {"type": "integer"}, "max_elements": {"type": "integer", "description": "Stop after this many elements. Default 1000."}}), &["window"]),
         run: crate::control::find,
     },
     Tool {

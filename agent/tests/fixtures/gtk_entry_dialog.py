@@ -4,7 +4,7 @@
     gtk_entry_dialog.py TITLE
 
 A label "Your name", a field holding "start", and Cancel and OK buttons. OK prints the field's text and exits 0;
-Cancel exits 1. Plain GTK 4 on purpose: zenity 4 is built on libadwaita, whose dialogs give assistive technology
+Enter in the field does what OK does. Cancel exits 1. Plain GTK 4 on purpose: zenity 4 is built on libadwaita, whose dialogs give assistive technology
 positions that leave out their own padding, so a click by an element's id would miss (bugs.md). It closes after
 two minutes if nothing is pressed.
 """
@@ -42,6 +42,7 @@ def answer(code):
 
 
 ok.connect("clicked", lambda _button: answer(0))
+entry.connect("activate", lambda _entry: answer(0))
 cancel.connect("clicked", lambda _button: answer(1))
 window.connect("close-request", lambda *_: answer(1))
 window.present()

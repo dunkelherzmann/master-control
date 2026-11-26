@@ -79,7 +79,9 @@ no `machine` argument.
 | Machines | `machines`, `status`, `guide` | Who is there, what works, this guide |
 | Commands | `exec`, `job`, `jobs`, `kill` | Run a command (`argv` or `command`); `detach` for long ones, then `job` to follow it; `elevated` for admin rights |
 | Files | `push`, `pull` | Write a file from text or base64; read one, in parts if it is large |
-| Screen | `screenshot`, `windows` | A picture of the desktop, a window or a region; the list of windows |
+| Screen | `screenshot`, `windows`, `arrange` | A picture of the desktop, a window or a region; the list of windows; move, size, minimize, maximize or restore one |
+| Desktops | `desktops` | The virtual desktops (workspaces, Spaces): list, switch, create, remove |
+| Apps | `apps`, `launch` | The apps the system's launcher offers; start one by its name and get its new window |
 | Pointer | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll` | At a position, or at an element by its id |
 | Keyboard | `type_text`, `key`, `focus` | Text and key chords into a named window |
 | Clipboard | `clipboard_get`, `clipboard_set` | The session's clipboard, text only |
@@ -101,6 +103,18 @@ for small text, take a `region` or one `window` instead of `full_size`.
 title) or `element` (an id from `find`). With `element`, that element is given the keyboard first, so the keys go
 into it and not into whatever in the window had the keyboard (a browser's address bar, say). The window must
 come to the front, or nothing is sent and you get `focus_refused`, with the name of what is in front instead.
+
+**Fill a field in one call.** `type_text` with `clear: true` empties the field first, `caret: "start"` or
+`"end"` puts the text at either end of what is there, and `enter: true` presses Enter after (a search, a form).
+To pick several items, click them with `hold: "ctrl"` (`"cmd"` on macOS); `hold: "shift"` selects a range.
+
+**Start apps by name.** `launch` takes the name the launcher shows (`apps` lists them, in the system's
+language) and answers with the app's new window, ready for `tree` or `arrange`. Use `exec` for a program with
+arguments.
+
+**Read busy windows compactly.** `tree` with `interactive: true` lists only what can be acted on (buttons,
+fields, list items and the like, plus what has the keyboard): a fraction of the full tree for a file manager or a
+browser. Its ids work like any other.
 
 **Sent is not landed.** The answer's `into` (macOS, Windows) names what had the keyboard: check it is what you
 meant, and check the result (`find` the field, or take a screenshot) before going on.

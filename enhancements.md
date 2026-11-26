@@ -233,3 +233,23 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 - [x] 2026-11-26: **Scripts run commands on the Linux and Windows machines through Master Control (mc-exec) instead of SSH** (developer tooling): `scripts/check.sh`, `scripts/place.sh` and `scripts/gen-syscalls.sh` copy files with `mc-exec --put` and run through `mc-exec`, by the Master Control names `linux` and `windows`; `place.sh` starts the worker replacement outside the worker (a systemd unit, a scheduled task) and waits for the new one to answer. Shipped in #22.
 
 - [x] 2026-11-26: **`mc-exec` ships with Master Control** (developer tooling): `scripts/mc-exec` runs a command on a machine through `mctl` with its own output and exit code, and copies files of any size (`--put`/`--get`), so the repository's scripts need nothing beyond the master's `mctl` (asked 2026-11-26). Shipped in #23.
+
+- [ ] 2026-11-26: **Close the gaps found against Windows-Use** (all platforms; asked after the window-control
+  comparison: "add them and build them, see if they can be implemented on Linux and Mac also").
+  - [ ] Click with keys held (`hold` on the clicks)
+    - [x] Linux (X11), Windows
+    - [ ] Mac: built; not tested, since a real click there would move the user's pointer
+  - [x] Typing helpers (`clear`, `caret`, `enter` on `type_text`): tested on the Mac (in the background), Linux
+    (GTK 4) and Windows
+  - [x] A compact view (`interactive` on `tree` and `find`): tested on the Mac, Linux and Windows
+  - [ ] Move, resize, minimize, maximize and restore a window (`arrange`)
+    - [x] Mac, Windows, Linux on X11 (moving and sizing; states need a window manager, which the test display
+      lacks)
+    - [ ] Linux on GNOME (built in the extension, API 3; its test runs in the signed-in session)
+  - [x] Launch an app by its name, and list the apps (`apps`, `launch`): tested on the Mac, Linux and Windows
+  - [ ] Virtual desktops (`desktops`)
+    - [x] Windows: list, switch, create, remove (Explorer's own shortcuts)
+    - [x] Mac: list; switch built with the system's Control-arrow shortcuts but not tested (it would change the
+      user's screen); macOS offers no way to add or remove Spaces
+    - [ ] Linux on GNOME: built (extension API 3), test written, not yet run; X11 needs a window manager
+  - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows
