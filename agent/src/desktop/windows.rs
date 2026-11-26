@@ -22,11 +22,12 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, EnumWindows, GetCursorPos, GetForegroundWindow, GetSystemMetrics, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
-    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, SetCursorPos, SetForegroundWindow, ShowWindow, SM_CXVIRTUALSCREEN,
-    SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_RESTORE,
+    GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed, SetCursorPos, SetForegroundWindow, SetWindowPos, ShowWindow,
+    SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE,
+    SW_RESTORE,
 };
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo, WindowState};
 
 pub struct WindowsDesktop;
 
@@ -124,6 +125,16 @@ fn open_clipboard() -> Result<()> {
         std::thread::sleep(std::time::Duration::from_millis(25));
     }
     Err(last_error("the clipboard is held by another program"))
+}
+
+/// The window's handle, if it still exists.
+fn live(window: &WindowInfo) -> Result<HWND> {
+    let handle = window.id as usize as HWND;
+    // SAFETY: a plain call; the system checks the handle.
+    if unsafe { IsWindow(handle) } == 0 {
+        return Err(DesktopError::failed("Windows: the window is gone"));
+    }
+    Ok(handle)
 }
 
 struct Listing {
@@ -269,6 +280,42 @@ impl Desktop for WindowsDesktop {
             SetForegroundWindow(window);
             BringWindowToTop(window);
         }
+        Ok(())
+    }
+
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        let handle = live(window)?;
+        // SAFETY: plain calls on a handle the system checks; the rectangles are locals.
+        unsafe {
+            if IsIconic(handle) != 0 || IsZoomed(handle) != 0 {
+                ShowWindow(handle, SW_RESTORE);
+            }
+            // `windows` gives the frame as drawn; SetWindowPos takes the rectangle with the invisible border around it.
+            let (mut outer, mut drawn): (RECT, RECT) = (zeroed(), zeroed());
+            GetWindowRect(handle, &mut outer);
+            if DwmGetWindowAttribute(handle, DWMWA_EXTENDED_FRAME_BOUNDS as u32, (&mut drawn as *mut RECT).cast(), size_of::<RECT>() as u32) != 0 {
+                drawn = outer;
+            }
+            let (left, top) = (drawn.left - outer.left, drawn.top - outer.top);
+            let (right, bottom) = (outer.right - drawn.right, outer.bottom - drawn.bottom);
+            let width = frame.width as i32 + left + right;
+            let height = frame.height as i32 + top + bottom;
+            if SetWindowPos(handle, null_mut(), frame.x - left, frame.y - top, width, height, SWP_NOZORDER | SWP_NOACTIVATE) == 0 {
+                return Err(last_error("the window couldn't be moved"));
+            }
+        }
+        Ok(())
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        let handle = live(window)?;
+        let command = match state {
+            WindowState::Normal => SW_RESTORE,
+            WindowState::Minimized => SW_MINIMIZE,
+            WindowState::Maximized => SW_MAXIMIZE,
+        };
+        // SAFETY: a plain call on a handle the system checks. Its answer is whether the window was visible before.
+        unsafe { ShowWindow(handle, command) };
         Ok(())
     }
 

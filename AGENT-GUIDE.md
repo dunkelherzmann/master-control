@@ -79,7 +79,7 @@ no `machine` argument.
 | Machines | `machines`, `status`, `guide` | Who is there, what works, this guide |
 | Commands | `exec`, `job`, `jobs`, `kill` | Run a command (`argv` or `command`); `detach` for long ones, then `job` to follow it; `elevated` for admin rights |
 | Files | `push`, `pull` | Write a file from text or base64; read one, in parts if it is large |
-| Screen | `screenshot`, `windows` | A picture of the desktop, a window or a region; the list of windows |
+| Screen | `screenshot`, `windows`, `arrange` | A picture of the desktop, a window or a region; the list of windows; move, size, minimize, maximize or restore one |
 | Pointer | `click`, `double_click`, `right_click`, `move`, `drag`, `scroll` | At a position, or at an element by its id |
 | Keyboard | `type_text`, `key`, `focus` | Text and key chords into a named window |
 | Clipboard | `clipboard_get`, `clipboard_set` | The session's clipboard, text only |

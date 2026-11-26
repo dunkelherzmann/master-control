@@ -11,11 +11,11 @@ use std::time::{Duration, Instant};
 
 use common::{decode_base64, desktop_turn, png_pixel, Test};
 use serde_json::{json, Value};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, CreateSolidBrush};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, SendMessageW, DispatchMessageW, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage, MSG,
+    CreateWindowExW, DefWindowProcW, GetWindowRect, IsIconic, IsZoomed, SendMessageW, DispatchMessageW, GetMessageW, PostMessageW, PostQuitMessage, RegisterClassW, TranslateMessage, MSG,
     WM_CHAR, WM_CLOSE, WM_COMMAND, WM_DESTROY, WS_CHILD, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL,
     WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WNDCLASSW, WS_EX_TOPMOST, WS_POPUP, WS_VISIBLE,
 };
@@ -307,6 +307,42 @@ fn a_click_with_keys_held_has_them_down_around_the_button_only() {
     test.tool("key", json!({"keys": "x", "window": fixture.title}));
     assert_eq!(fixture.typed(), "x");
     assert_eq!(test.refused("click", json!({"x": 450, "y": 325, "hold": "a"})), (400, "bad_input".into()));
+}
+
+/// Where the system itself says the window is, and whether it is minimized or maximized: not the agent's reading.
+fn system_says(fixture: &Fixture) -> ((i32, i32, i32, i32), bool, bool) {
+    let handle = fixture.window as HWND;
+    let mut frame = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    unsafe { GetWindowRect(handle, &mut frame) };
+    let (minimized, maximized) = unsafe { (IsIconic(handle) != 0, IsZoomed(handle) != 0) };
+    ((frame.left, frame.top, frame.right - frame.left, frame.bottom - frame.top), minimized, maximized)
+}
+
+#[test]
+fn a_window_is_moved_sized_minimized_maximized_and_restored() {
+    let (_turn, test, fixture) = start("mc test: arrange");
+    let placed = test.tool("arrange", json!({"window": fixture.title, "x": 300, "y": 220, "width": 420, "height": 260}));
+    assert_eq!((&placed["window"]["x"], &placed["window"]["y"], &placed["window"]["width"], &placed["window"]["height"]), (&json!(300), &json!(220), &json!(420), &json!(260)), "{placed}");
+    assert_eq!(system_says(&fixture), ((300, 220, 420, 260), false, false));
+    test.tool("arrange", json!({"window": fixture.title, "y": 240}));
+    assert_eq!(system_says(&fixture).0, (300, 240, 420, 260), "what isn't given stays");
+
+    let minimized = test.tool("arrange", json!({"window": fixture.title, "state": "minimized"}));
+    assert_eq!((minimized["window"]["minimized"].clone(), system_says(&fixture).1), (json!(true), true), "{minimized}");
+    let restored = test.tool("arrange", json!({"window": fixture.title, "state": "normal"}));
+    assert_eq!((restored["window"]["minimized"].clone(), system_says(&fixture)), (json!(false), ((300, 240, 420, 260), false, false)), "{restored}");
+
+    let maximized = test.tool("arrange", json!({"window": fixture.title, "state": "maximized"}));
+    let screen = test.tool("windows", json!({}))["screen"].clone();
+    assert!(system_says(&fixture).2, "the system says maximized: {maximized}");
+    assert!(maximized["window"]["width"].as_i64().unwrap() >= screen["width"].as_i64().unwrap() / 2, "{maximized}");
+    // A maximized window given a place is restored first.
+    test.tool("arrange", json!({"window": fixture.title, "x": 250, "y": 200, "width": 400, "height": 300}));
+    assert_eq!(system_says(&fixture), ((250, 200, 400, 300), false, false));
+
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title})), (400, "bad_input".into()));
+    assert_eq!(test.refused("arrange", json!({"window": fixture.title, "state": "minimized", "x": 5})), (400, "bad_input".into()));
+    assert_eq!(test.refused("arrange", json!({"window": "no such window anywhere", "x": 5})), (404, "window_not_found".into()));
 }
 
 #[test]

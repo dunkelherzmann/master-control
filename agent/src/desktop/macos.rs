@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use objc::runtime::Object;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo, WindowState};
 
 type Id = *mut Object;
 
@@ -33,6 +33,19 @@ struct CgRect {
     origin: Point,
     width: f64,
     height: f64,
+}
+
+// How the runtime describes these structures, so messages answering them are sent the right way.
+unsafe impl objc::Encode for Point {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGPoint=dd}") }
+    }
+}
+
+unsafe impl objc::Encode for CgRect {
+    fn encode() -> objc::Encoding {
+        unsafe { objc::Encoding::from_str("{CGRect={CGPoint=dd}{CGSize=dd}}") }
+    }
 }
 
 #[link(name = "AppKit", kind = "framework")]
@@ -429,6 +442,72 @@ impl Desktop for MacDesktop {
         Ok(())
     }
 
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        self.may_send_input()?;
+        pooled(|| unsafe {
+            in_window(window, |element| {
+                restore(element);
+                set_frame(element, frame)
+            })
+        })
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        self.may_send_input()?;
+        pooled(|| unsafe {
+            in_window(window, |element| match state {
+                WindowState::Minimized => set_flag(element, "AXMinimized", true),
+                WindowState::Normal => {
+                    restore(element);
+                    Ok(())
+                }
+                WindowState::Maximized => {
+                    restore(element);
+                    let frame = frame_of(element).unwrap_or(window.frame);
+                    set_frame(element, work_area(frame))
+                }
+            })
+        })
+    }
+
+    fn hidden_window(&self, id: u64) -> Option<WindowInfo> {
+        pooled(|| unsafe {
+            // 0: every window, off screen too.
+            let list = CGWindowListCopyWindowInfo(0, 0);
+            if list.is_null() {
+                return None;
+            }
+            let count: usize = msg_send![list, count];
+            let mut found = None;
+            for index in 0..count {
+                let entry: Id = msg_send![list, objectAtIndex: index];
+                let value = |key: &str| -> Id { msg_send![entry, objectForKey: text(key)] };
+                let number = |object: Id| -> f64 { if object.is_null() { 0.0 } else { msg_send![object, doubleValue] } };
+                if number(value("kCGWindowNumber")) as u64 != id || number(value("kCGWindowLayer")) != 0.0 || number(value("kCGWindowIsOnscreen")) != 0.0 {
+                    continue;
+                }
+                let bounds = value("kCGWindowBounds");
+                let part = |key: &str| -> f64 { if bounds.is_null() { 0.0 } else { number(msg_send![bounds, objectForKey: text(key)]) } };
+                let window = WindowInfo {
+                    id,
+                    title: string_of(value("kCGWindowName")),
+                    app: string_of(value("kCGWindowOwnerName")),
+                    pid: (number(value("kCGWindowOwnerPID")) as i32).max(0) as u32,
+                    frame: Rect { x: part("X") as i32, y: part("Y") as i32, width: part("Width") as u32, height: part("Height") as u32 },
+                    focused: false,
+                    minimized: true,
+                };
+                // Off screen for another reason (a hidden app, a window kept for later) is not minimized: asked of the
+                // window itself.
+                let minimized = in_window(&window, |element| Ok(flag_attribute(element, "AXMinimized", false))).unwrap_or(false);
+                found = minimized.then_some(window);
+                break;
+            }
+            CFRelease(list as *const c_void);
+            found
+        })
+    }
+
     fn pointer(&self) -> Result<(i32, i32)> {
         // SAFETY: an empty event carries the pointer's place; it is released at once.
         let at = unsafe {
@@ -726,6 +805,98 @@ unsafe fn in_window<T>(window: &WindowInfo, with: impl FnOnce(*mut c_void) -> Re
         CFRelease(app);
         outcome
     }
+}
+
+/// Brings a window back from the Dock and out of full screen.
+///
+/// SAFETY: `element` is a live accessibility window.
+unsafe fn restore(element: *mut c_void) {
+    unsafe {
+        if flag_attribute(element, "AXMinimized", false) {
+            let _ = set_flag(element, "AXMinimized", false);
+        }
+        if flag_attribute(element, "AXFullScreen", false) {
+            let _ = set_flag(element, "AXFullScreen", false);
+            // Leaving full screen is animated; the window can't be placed until it is over.
+            std::thread::sleep(std::time::Duration::from_millis(900));
+        }
+    }
+}
+
+/// SAFETY: `element` is a live accessibility element.
+unsafe fn set_flag(element: *mut c_void, name: &str, on: bool) -> Result<()> {
+    unsafe {
+        let value: Id = msg_send![class!(NSNumber), numberWithBool: if on { objc::runtime::YES } else { objc::runtime::NO }];
+        match AXUIElementSetAttributeValue(element, text(name), value) {
+            0 => Ok(()),
+            code => Err(DesktopError::failed(format!("macOS: the window refused {name} (accessibility error {code})"))),
+        }
+    }
+}
+
+/// Moves and sizes a window: place, then size, then place again (a window grown past the screen's edge is pushed
+/// back by the system).
+///
+/// SAFETY: `element` is a live accessibility window.
+unsafe fn set_frame(element: *mut c_void, frame: Rect) -> Result<()> {
+    unsafe {
+        let at = Point { x: f64::from(frame.x), y: f64::from(frame.y) };
+        let extent = Point { x: f64::from(frame.width), y: f64::from(frame.height) };
+        // 1 and 2: the kinds of value that hold a point and a size.
+        let set = |name: &str, kind: u32, value: &Point| -> i32 {
+            let boxed = AXValueCreate(kind, (value as *const Point).cast());
+            if boxed.is_null() {
+                return -1;
+            }
+            let code = AXUIElementSetAttributeValue(element, text(name), boxed as Id);
+            CFRelease(boxed);
+            code
+        };
+        let codes = [set("AXPosition", 1, &at), set("AXSize", 2, &extent), set("AXPosition", 1, &at)];
+        match codes.iter().find(|code| **code != 0) {
+            None => Ok(()),
+            Some(code) => Err(DesktopError::failed(format!("macOS: the window couldn't be moved or sized (accessibility error {code})"))),
+        }
+    }
+}
+
+/// The work area of the screen a frame is mostly on: the screen without the menu bar and the Dock, in desktop
+/// points (from the top left of the main display).
+fn work_area(frame: Rect) -> Rect {
+    pooled(|| unsafe {
+        let screens: Id = msg_send![class!(NSScreen), screens];
+        let count: usize = if screens.is_null() { 0 } else { msg_send![screens, count] };
+        // AppKit counts from the bottom left of the main display (the first screen), upwards.
+        let main_height = if count > 0 {
+            let main: Id = msg_send![screens, objectAtIndex: 0usize];
+            let whole: CgRect = msg_send![main, frame];
+            whole.height
+        } else {
+            0.0
+        };
+        let middle = (f64::from(frame.x) + f64::from(frame.width) / 2.0, f64::from(frame.y) + f64::from(frame.height) / 2.0);
+        let mut chosen = None;
+        for index in 0..count {
+            let screen: Id = msg_send![screens, objectAtIndex: index];
+            let whole: CgRect = msg_send![screen, frame];
+            let visible: CgRect = msg_send![screen, visibleFrame];
+            let top = main_height - (whole.origin.y + whole.height);
+            let inside = middle.0 >= whole.origin.x && middle.0 < whole.origin.x + whole.width && middle.1 >= top && middle.1 < top + whole.height;
+            let area = Rect {
+                x: visible.origin.x.round() as i32,
+                y: (main_height - (visible.origin.y + visible.height)).round() as i32,
+                width: visible.width.round() as u32,
+                height: visible.height.round() as u32,
+            };
+            if inside || chosen.is_none() {
+                chosen = Some(area);
+            }
+            if inside {
+                break;
+            }
+        }
+        chosen.unwrap_or(frame)
+    })
 }
 
 /// The window layer of the dialogs macOS shows on an app's behalf (`kCGModalPanelWindowLevel`).

@@ -9,7 +9,7 @@ use std::path::PathBuf;
 use serde::Deserialize;
 use zbus::blocking::Connection;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo, WindowState};
 
 pub const UUID: &str = "master-control@dunkelherzmann.github.io";
 pub const METADATA: &str = include_str!("../../../linux/gnome-extension/metadata.json");
@@ -18,7 +18,7 @@ pub const EXTENSION: &str = include_str!("../../../linux/gnome-extension/extensi
 const NAME: &str = "io.github.dunkelherzmann.MasterControl";
 const PATH: &str = "/io/github/dunkelherzmann/MasterControl";
 /// The extension's `API`: raised with every change to its methods.
-const API: u32 = 2;
+const API: u32 = 3;
 
 fn failed<E: std::fmt::Display>(error: E) -> DesktopError {
     DesktopError::failed(format!("GNOME Shell: {error}"))
@@ -180,6 +180,27 @@ impl Desktop for GnomeDesktop {
 
     fn focus(&self, window: u64) -> Result<()> {
         let found: bool = self.call("Activate", &(window,))?;
+        if !found {
+            return Err(DesktopError::gone("there is no such window now"));
+        }
+        Ok(())
+    }
+
+    fn place_window(&self, window: &WindowInfo, frame: Rect) -> Result<()> {
+        let found: bool = self.call("Place", &(window.id, frame.x, frame.y, frame.width as i32, frame.height as i32))?;
+        if !found {
+            return Err(DesktopError::gone("there is no such window now"));
+        }
+        Ok(())
+    }
+
+    fn set_window_state(&self, window: &WindowInfo, state: WindowState) -> Result<()> {
+        let name = match state {
+            WindowState::Normal => "normal",
+            WindowState::Minimized => "minimized",
+            WindowState::Maximized => "maximized",
+        };
+        let found: bool = self.call("SetState", &(window.id, name))?;
         if !found {
             return Err(DesktopError::gone("there is no such window now"));
         }

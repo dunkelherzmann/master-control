@@ -186,6 +186,16 @@ pub const TOOLS: &[Tool] = &[
         run: crate::control::focus,
     },
     Tool {
+        name: "arrange",
+        description: "Move, size, minimize, maximize or restore a window. Give x, y, width and/or height (desktop pixels, \
+                      the frame as `windows` reports it; what is left out stays), or `state`: normal, minimized or \
+                      maximized (the screen's work area). A minimized or maximized window given a place is restored \
+                      first. Answers with the window as it then is; `asked` is added when the app or the window manager \
+                      kept it to another place or size. The window isn't brought to the front.",
+        schema: || object(json!({"window": {"description": "The window: its id or its title (or a part of the title only one window has). A minimized window on macOS is found by its id."}, "x": {"type": "number"}, "y": {"type": "number"}, "width": {"type": "number"}, "height": {"type": "number"}, "state": {"type": "string", "enum": ["normal", "minimized", "maximized"]}}), &["window"]),
+        run: crate::control::arrange,
+    },
+    Tool {
         name: "click",
         description: "Click at a position. With `window`, that window is brought to the front first and the position \
                       must be inside it. With `background` (macOS) nothing comes to the front and the pointer stays \

@@ -250,6 +250,16 @@ pub struct Acted {
     pub expanded: Option<bool>,
 }
 
+/// How a window is shown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WindowState {
+    /// Neither minimized nor maximized.
+    Normal,
+    Minimized,
+    /// Filling the screen's work area (what the menu bar, the Dock, the taskbar or panels leave).
+    Maximized,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Button {
     Left,
@@ -294,6 +304,20 @@ pub trait Desktop {
     /// Presses a key or a chord in a window's app the same way.
     fn quiet_chord(&self, _window: &WindowInfo, _chord: &[Key]) -> Result<()> {
         Err(quiet_is_not_built())
+    }
+    /// Moves and sizes a window, to the frame as `windows` reports it. A minimized or maximized window is restored
+    /// first. The window manager or the app may keep it to sizes it allows: the caller reads the result back.
+    fn place_window(&self, _window: &WindowInfo, _frame: Rect) -> Result<()> {
+        Err(DesktopError::not_supported("moving and sizing windows isn't built for this desktop"))
+    }
+    /// Minimizes, maximizes or restores a window.
+    fn set_window_state(&self, _window: &WindowInfo, _state: WindowState) -> Result<()> {
+        Err(DesktopError::not_supported("minimizing and maximizing windows isn't built for this desktop"))
+    }
+    /// A window `windows` leaves out because it is minimized (macOS lists only what is on screen), so it can be
+    /// restored by its id.
+    fn hidden_window(&self, _id: u64) -> Option<WindowInfo> {
+        None
     }
     /// The text on the clipboard; None when it is empty or holds something that isn't text.
     fn clipboard(&self) -> Result<Option<String>>;

@@ -9,7 +9,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, WindowInfo};
+use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, WindowInfo, WindowState};
 use crate::tools::{number, required_text, text, ToolError};
 use crate::{state, Agent};
 
@@ -372,6 +372,118 @@ pub fn focus(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     let desktop = open()?;
     let window = bring_forward(desktop.as_ref(), &find_window(desktop.as_ref(), &args["window"])?)?;
     Ok(delivered(Some(window), json!({})))
+}
+
+/// What `arrange` is asked for: a state, a frame (any part left out stays as it is), or a frame in the normal state.
+#[derive(Debug, PartialEq)]
+struct Arrangement {
+    state: Option<WindowState>,
+    x: Option<i32>,
+    y: Option<i32>,
+    width: Option<u32>,
+    height: Option<u32>,
+}
+
+impl Arrangement {
+    fn from(args: &Value) -> Result<Arrangement, ToolError> {
+        let state = match text(args, "state")? {
+            None => None,
+            Some("normal") => Some(WindowState::Normal),
+            Some("minimized") => Some(WindowState::Minimized),
+            Some("maximized") => Some(WindowState::Maximized),
+            Some(other) => return Err(ToolError::bad(format!("state is normal, minimized or maximized, not {other}"))),
+        };
+        let place = |name: &str| signed(args, name).map(|value| value.map(|value| value.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32));
+        let size = |name: &str| match signed(args, name)? {
+            None => Ok(None),
+            Some(value) if (1..=100_000).contains(&value) => Ok(Some(value as u32)),
+            Some(_) => Err(ToolError::bad(format!("{name} must be between 1 and 100000 pixels"))),
+        };
+        let arrangement = Arrangement { state, x: place("x")?, y: place("y")?, width: size("width")?, height: size("height")? };
+        let placed = arrangement.placed();
+        match arrangement.state {
+            None if !placed => Err(ToolError::bad("say what to do: x, y, width and/or height, or state")),
+            Some(WindowState::Minimized | WindowState::Maximized) if placed => {
+                Err(ToolError::bad("a minimized or maximized window has no place of its own: give the state, or the place, not both"))
+            }
+            _ => Ok(arrangement),
+        }
+    }
+
+    fn placed(&self) -> bool {
+        self.x.is_some() || self.y.is_some() || self.width.is_some() || self.height.is_some()
+    }
+
+    /// The frame asked for, the parts not given taken from where the window is.
+    fn frame(&self, now: Rect) -> Rect {
+        Rect { x: self.x.unwrap_or(now.x), y: self.y.unwrap_or(now.y), width: self.width.unwrap_or(now.width), height: self.height.unwrap_or(now.height) }
+    }
+}
+
+/// Moves, sizes, minimizes, maximizes or restores a window, and answers with the window as it then is.
+pub fn arrange(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let arrangement = Arrangement::from(args)?;
+    let desktop = open()?;
+    let window = match find_window(desktop.as_ref(), &args["window"]) {
+        Err(error) if error.code == "window_not_found" => args["window"].as_u64().and_then(|id| desktop.hidden_window(id)).ok_or(error)?,
+        found => found?,
+    };
+    let current = |desktop: &dyn Desktop| desktop.windows().ok().and_then(|windows| windows.into_iter().find(|candidate| candidate.id == window.id)).or_else(|| desktop.hidden_window(window.id));
+    if let Some(state) = arrangement.state {
+        desktop.set_window_state(&window, state)?;
+    }
+    let mut asked = None;
+    if arrangement.placed() {
+        // Read again: a window just restored is somewhere else than it was.
+        let from = if arrangement.state.is_some() { wait_until(|| current(desktop.as_ref()), |now| !now.minimized).unwrap_or(window.clone()) } else { window.clone() };
+        let frame = arrangement.frame(from.frame);
+        desktop.place_window(&from, frame)?;
+        asked = Some(frame);
+    }
+    let before = window.frame;
+    let now = wait_until(
+        || current(desktop.as_ref()),
+        |now| match (arrangement.state, asked) {
+            (_, Some(frame)) => now.frame == frame && !now.minimized,
+            (Some(WindowState::Minimized), None) => now.minimized,
+            (Some(WindowState::Maximized), None) => !now.minimized && now.frame != before,
+            (Some(WindowState::Normal), None) => !now.minimized,
+            (None, None) => true,
+        },
+    )
+    .ok_or_else(|| ToolError { code: "window_not_found", message: format!("the window \"{}\" closed", window.title) })?;
+    if arrangement.state == Some(WindowState::Minimized) && !now.minimized {
+        return Err(ToolError::failed(format!("the window \"{}\" was asked to minimize and didn't", window.title)));
+    }
+    if matches!(arrangement.state, Some(WindowState::Normal | WindowState::Maximized)) && now.minimized {
+        return Err(ToolError::failed(format!("the window \"{}\" was asked to come back from the Dock or the taskbar and didn't", window.title)));
+    }
+    let mut answer = json!({});
+    if let Some(frame) = asked.filter(|frame| *frame != now.frame) {
+        // Said, not hidden: windows have smallest sizes, and some apps or window managers keep to sizes of their own.
+        answer["asked"] = json!({ "x": frame.x, "y": frame.y, "width": frame.width, "height": frame.height });
+        answer["note"] = json!("the window isn't exactly where it was asked to be: the app or the window manager kept it to a place or size it allows");
+    }
+    Ok(delivered(Some(now), answer))
+}
+
+/// The window as it is once `done` holds, or as it is after two seconds; None if it is gone for all that time. A
+/// window coming back from the Dock is listed nowhere for a moment while it animates.
+fn wait_until(read: impl Fn() -> Option<WindowInfo>, done: impl Fn(&WindowInfo) -> bool) -> Option<WindowInfo> {
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut last = None;
+    loop {
+        if let Some(now) = read() {
+            if done(&now) {
+                return Some(now);
+            }
+            last = Some(now);
+        }
+        if Instant::now() >= deadline {
+            return last;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 fn press(desktop: &dyn Desktop, button: Button, times: u32) -> Result<(), ToolError> {
@@ -949,6 +1061,18 @@ mod tests {
         assert_eq!(around(&json!({"caret": "middle"}), false).unwrap_err().code, "bad_input");
         assert_eq!(around(&json!({"clear": true, "caret": "end"}), false).unwrap_err().code, "bad_input");
         assert_eq!(around(&json!({"enter": "yes"}), false).unwrap_err().code, "bad_input");
+    }
+
+    #[test]
+    fn an_arrangement_is_a_state_or_a_place() {
+        let placed = Arrangement::from(&json!({"x": 10, "width": 300})).unwrap();
+        assert_eq!(placed.frame(Rect { x: 1, y: 2, width: 3, height: 4 }), Rect { x: 10, y: 2, width: 300, height: 4 }, "what isn't given stays");
+        assert_eq!(Arrangement::from(&json!({"state": "maximized"})).unwrap().state, Some(WindowState::Maximized));
+        let restored = Arrangement::from(&json!({"state": "normal", "x": 5, "y": 6})).unwrap();
+        assert_eq!((restored.state, restored.placed()), (Some(WindowState::Normal), true), "restored, then placed");
+        for wrong in [json!({}), json!({"state": "huge"}), json!({"state": "minimized", "x": 1}), json!({"state": "maximized", "width": 9}), json!({"width": 0}), json!({"height": -5}), json!({"x": "left"})] {
+            assert_eq!(Arrangement::from(&wrong).unwrap_err().code, "bad_input", "{wrong}");
+        }
     }
 
     #[test]
