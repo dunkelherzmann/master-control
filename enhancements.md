@@ -236,11 +236,20 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 
 - [ ] 2026-11-26: **Close the gaps found against Windows-Use** (all platforms; asked after the window-control
   comparison: "add them and build them, see if they can be implemented on Linux and Mac also").
-  - [ ] Click with keys held (ctrl or shift multi-select): Mac, Linux, Windows
-  - [ ] Typing helpers: clear the field first, put the caret at the start or the end, press Enter after: Mac,
-    Linux, Windows
-  - [ ] A compact view of a window that lists only what can be acted on: Mac, Linux, Windows
-  - [ ] Move, resize, minimize, maximize and restore a window: Mac, Linux, Windows
-  - [ ] Launch an app by its name, and list the apps that can be launched: Mac, Linux, Windows
-  - [ ] Virtual desktops: list, switch, create, remove: Mac, Linux, Windows
-  - [ ] Faster window reading and a stronger bring-to-front on Windows
+  - [ ] Click with keys held (`hold` on the clicks)
+    - [x] Linux (X11), Windows
+    - [ ] Mac: built; not tested, since a real click there would move the user's pointer
+  - [x] Typing helpers (`clear`, `caret`, `enter` on `type_text`): tested on the Mac (in the background), Linux
+    (GTK 4) and Windows
+  - [x] A compact view (`interactive` on `tree` and `find`): tested on the Mac, Linux and Windows
+  - [ ] Move, resize, minimize, maximize and restore a window (`arrange`)
+    - [x] Mac, Windows, Linux on X11 (moving and sizing; states need a window manager, which the test display
+      lacks)
+    - [ ] Linux on GNOME (built in the extension, API 3; its test runs in the signed-in session)
+  - [x] Launch an app by its name, and list the apps (`apps`, `launch`): tested on the Mac, Linux and Windows
+  - [ ] Virtual desktops (`desktops`)
+    - [x] Windows: list, switch, create, remove (Explorer's own shortcuts)
+    - [x] Mac: list; switch built with the system's Control-arrow shortcuts but not tested (it would change the
+      user's screen); macOS offers no way to add or remove Spaces
+    - [ ] Linux on GNOME: built (extension API 3), test written, not yet run; X11 needs a window manager
+  - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows

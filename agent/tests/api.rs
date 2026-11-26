@@ -762,6 +762,7 @@ fn on_a_mac_a_window_is_moved_sized_minimized_and_restored() {
         test.post("/v1/type_text", &json!({"window": id, "text": "<", "caret": "start", "background": true}));
         test.post("/v1/type_text", &json!({"window": id, "text": ">", "caret": "end", "background": true}));
         said.insert("typed".into(), test.tool("find", json!({"window": id, "role": "text"}))["elements"][0]["value"].clone());
+        said.insert("compact".into(), test.tool("tree", json!({"window": id, "interactive": true}))["elements"].clone());
         said.insert("in front".into(), json!(test.tool("windows", json!({}))["windows"].as_array().unwrap().iter().any(|window| window["id"] == id && window["focused"] == true)));
         Value::Object(said)
     };
@@ -779,6 +780,8 @@ fn on_a_mac_a_window_is_moved_sized_minimized_and_restored() {
     assert!(maximized["width"].as_i64().unwrap() >= screen["width"].as_i64().unwrap() - 200 && maximized["height"].as_i64().unwrap() >= screen["height"].as_i64().unwrap() - 200, "fills the work area: {outcome}");
     assert_eq!(frame(&outcome["back"]), (json!(200), json!(150), json!(500), json!(320)), "a maximized window placed is restored: {outcome}");
     assert_eq!(outcome["typed"], "<middle>", "clear and caret, in the background: {outcome}");
+    let roles: Vec<&str> = outcome["compact"].as_array().unwrap().iter().map(|element| element["role"].as_str().unwrap()).collect();
+    assert!(roles.contains(&"button") && roles.contains(&"text") && roles.contains(&"check_box") && !roles.contains(&"label") && !roles.contains(&"window"), "the compact view: {roles:?}");
     assert_eq!(outcome["in front"], false, "arranging doesn't bring the window forward");
 }
 
