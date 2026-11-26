@@ -42,7 +42,9 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
    (2026-11-11; 48 tests pass on Linux and Windows, 40 on the Mac)
    - [x] Clipboard (`clipboard_get`, `clipboard_set`) on both (2026-11-11). Text only; saving and restoring the
      clipboard around a test is still to do
-   - [ ] `move_window`, `close_window`, `apps`, `install`, `launch`, `stop`, `record_start`/`record_stop`
+   - [x] Moving, sizing and minimizing windows (`arrange`), listing and starting apps (`apps`, `launch`), virtual
+     desktops (`desktops`): on all three systems, 0.2.42 (#25)
+   - [ ] `close_window`, `install`, `stop`, `record_start`/`record_stop`
    - [ ] Linux: tests under a window manager (focus through the window manager is only smoke-tested in GNOME, by
      listing windows); several monitors; HiDPI
    - [ ] Windows: a window with higher rights in front (the refusal is written, not tested); several monitors with
@@ -55,7 +57,8 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
    - [ ] Windows is tested with classic Win32 controls; WPF, WinUI, WebView2 and Electron apps are not tried yet
    - [x] Element actions beyond the pointer: `set_value`, `toggle`, `expand`, `select` and `press` without moving
      the pointer, tested on Linux and Windows
-   - [ ] Large trees: reading is one request per property; cache or batch before it is used on big apps
+   - [ ] Large trees: Windows reads a window in one cached UI Automation call (#25; Explorer 0.83 s to about
+     0.15 s); Linux (AT-SPI) and macOS still ask one property at a time
 5. [x] Observation on Linux, first source (2026-11-11; 64 tests pass on Linux): a ptrace tracer for a started
    command, with process, file, network, memory and system-call events, the target's output, crashes, allowed
    folders, guards and the verdict. Chosen before eBPF because it needs no root and no kernel toolchain.
@@ -270,7 +273,8 @@ In the order suggested. Each names where the idea was seen (spec §7).
 8. A published table of which action works on which system and toolkit, proven by small fixture apps (Cua Driver).
 9. Wayland (Cua Driver uses libei and the compositors' screen copy). GNOME built 2026-11-16 (#11, #12) through a
    shell extension of ours; KDE Plasma and wlroots still open (see "To prove").
-10. Windows and apps: start and close an app, move, resize, minimize, several displays, notifications.
+10. Windows and apps: start and close an app, move, resize, minimize, several displays, notifications. Starting,
+    moving, resizing and minimizing built 2026-11-26 (#25); closing, several displays and notifications open.
 11. Smaller ones: a zoom action for dense screens (Anthropic's computer tool), the contents of files a program
     wrote (Tracee), making chosen calls fail to test error paths (strace), per-app permission levels as an
     optional guard.
