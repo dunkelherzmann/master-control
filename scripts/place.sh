@@ -14,6 +14,7 @@
 # Windows) and the new worker is waited for and asked for its version. Stops at the first step that fails.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PATH="$ROOT/scripts:$PATH"  # mc-exec: the copy in this repository, so nothing beyond mctl is needed
 cd "$ROOT"
 # The other two machines, by their Master Control names (`mctl machines`): linux and windows, or others put in
 # scripts/hosts.env (not kept with the project) or the environment. See scripts/hosts.env.example.
