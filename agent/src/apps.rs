@@ -182,7 +182,7 @@ fn starter(app: &App) -> Command {
 }
 
 /// More folders to look in, from `MC_APPS_FOLDERS` (separated as PATH is): for tests, which add apps of their own.
-#[cfg_attr(windows, allow(dead_code))]
+#[cfg(not(windows))]
 fn extra_folders() -> Vec<PathBuf> {
     std::env::var_os("MC_APPS_FOLDERS").map(|value| std::env::split_paths(&value).collect()).unwrap_or_default()
 }

@@ -3,7 +3,9 @@
 use windows::Win32::Foundation::HWND;
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoUninitialize, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED};
 use windows::Win32::UI::Accessibility::{
-    CUIAutomation, ExpandCollapseState_Collapsed, IUIAutomation, IUIAutomationElement, IUIAutomationExpandCollapsePattern, IUIAutomationInvokePattern,
+    CUIAutomation, ExpandCollapseState_Collapsed, IUIAutomation, IUIAutomationCacheRequest, IUIAutomationElement, IUIAutomationExpandCollapsePattern,
+    IUIAutomationInvokePattern, TreeScope_Subtree, UIA_BoundingRectanglePropertyId, UIA_ControlTypePropertyId, UIA_HasKeyboardFocusPropertyId,
+    UIA_IsEnabledPropertyId, UIA_NamePropertyId, UIA_ValueValuePropertyId,
     IUIAutomationLegacyIAccessiblePattern, IUIAutomationRangeValuePattern, IUIAutomationSelectionItemPattern, IUIAutomationTogglePattern,
     IUIAutomationTreeWalker, IUIAutomationValuePattern, ToggleState_On, UIA_ExpandCollapsePatternId, UIA_InvokePatternId,
     UIA_LegacyIAccessiblePatternId, UIA_RangeValuePatternId, UIA_SelectionItemPatternId, UIA_TogglePatternId, UIA_ValuePatternId,
@@ -29,17 +31,77 @@ fn control_type(id: i32) -> &'static str {
     usize::try_from(id - 50000).ok().and_then(|index| NAMES.get(index)).copied().unwrap_or("custom")
 }
 
+/// Everything the tree shows of every element in a window, asked for at once: one trip to the app for the whole
+/// window instead of several for each element, which is what makes a large window slow to read.
+///
+/// SAFETY: must run on a thread where COM is initialised.
+unsafe fn whole_window_request(automation: &IUIAutomation) -> windows::core::Result<IUIAutomationCacheRequest> {
+    unsafe {
+        let request = automation.CreateCacheRequest()?;
+        for property in [UIA_ControlTypePropertyId, UIA_NamePropertyId, UIA_BoundingRectanglePropertyId, UIA_IsEnabledPropertyId, UIA_HasKeyboardFocusPropertyId, UIA_ValueValuePropertyId] {
+            request.AddProperty(property)?;
+        }
+        request.AddPattern(UIA_ValuePatternId)?;
+        request.SetTreeScope(TreeScope_Subtree)?;
+        // The same elements, in the same order, as the control view walker that `act` follows back down.
+        request.SetTreeFilter(&automation.ControlViewCondition()?)?;
+        Ok(request)
+    }
+}
+
+fn frame_of(frame: windows::Win32::Foundation::RECT) -> Option<Rect> {
+    (frame.right > frame.left && frame.bottom > frame.top).then(|| Rect { x: frame.left, y: frame.top, width: (frame.right - frame.left) as u32, height: (frame.bottom - frame.top) as u32 })
+}
+
+/// Reads a tree already fetched whole into the cache: nothing here goes to the app.
+struct CachedReading {
+    limits: TreeLimits,
+    read: usize,
+    cut: bool,
+}
+
+impl CachedReading {
+    /// SAFETY: must run on a thread where COM is initialised, with an element from `whole_window_request`.
+    unsafe fn element(&mut self, element: &IUIAutomationElement, depth: u32) -> Element {
+        self.read += 1;
+        let value = unsafe { element.GetCachedPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
+            .ok()
+            .and_then(|pattern| unsafe { pattern.CachedValue() }.ok())
+            .map(|value| value.to_string());
+        let mut read = Element {
+            role: common_role(control_type(unsafe { element.CachedControlType() }.map_or(0, |kind| kind.0))),
+            name: unsafe { element.CachedName() }.map(|name| name.to_string()).unwrap_or_default(),
+            value,
+            frame: unsafe { element.CachedBoundingRectangle() }.ok().and_then(frame_of),
+            enabled: unsafe { element.CachedIsEnabled() }.map_or(true, |enabled| enabled.as_bool()),
+            focused: unsafe { element.CachedHasKeyboardFocus() }.is_ok_and(|focused| focused.as_bool()),
+            children: Vec::new(),
+        };
+        if depth >= self.limits.depth {
+            return read;
+        }
+        // No children is an error or an empty list, depending on the app.
+        let Ok(children) = (unsafe { element.GetCachedChildren() }) else { return read };
+        let count = unsafe { children.Length() }.unwrap_or(0);
+        for index in 0..count {
+            if self.read >= self.limits.elements {
+                self.cut = true;
+                break;
+            }
+            if let Ok(child) = unsafe { children.GetElement(index) } {
+                read.children.push(unsafe { self.element(&child, depth + 1) });
+            }
+        }
+        read
+    }
+}
+
 impl Reading<'_> {
     /// SAFETY: must run on a thread where COM is initialised, with a live element.
     unsafe fn element(&mut self, element: &IUIAutomationElement, depth: u32) -> Element {
         self.read += 1;
         // Each property is asked for on its own and may fail on its own: the app can close a control under us.
-        let frame = unsafe { element.CurrentBoundingRectangle() }.ok().filter(|frame| frame.right > frame.left && frame.bottom > frame.top).map(|frame| Rect {
-            x: frame.left,
-            y: frame.top,
-            width: (frame.right - frame.left) as u32,
-            height: (frame.bottom - frame.top) as u32,
-        });
+        let frame = unsafe { element.CurrentBoundingRectangle() }.ok().and_then(frame_of);
         let value = unsafe { element.GetCurrentPatternAs::<IUIAutomationValuePattern>(UIA_ValuePatternId) }
             .ok()
             .and_then(|pattern| unsafe { pattern.CurrentValue() }.ok())
@@ -78,6 +140,12 @@ pub fn tree(window: u64, limits: TreeLimits) -> Result<(Element, bool)> {
         let outcome = (|| {
             let automation: IUIAutomation = CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER).map_err(failed)?;
             let root = automation.ElementFromHandle(HWND(window as usize as *mut core::ffi::c_void)).map_err(failed)?;
+            // The whole window at once; an app that can't give it so is read element by element.
+            if let Ok(cached) = whole_window_request(&automation).and_then(|request| root.BuildUpdatedCache(&request)) {
+                let mut reading = CachedReading { limits, read: 0, cut: false };
+                let element = reading.element(&cached, 0);
+                return Ok((element, reading.cut));
+            }
             let walker = automation.ControlViewWalker().map_err(failed)?;
             let mut reading = Reading { walker: &walker, limits, read: 0, cut: false };
             let element = reading.element(&root, 0);

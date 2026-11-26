@@ -13,7 +13,7 @@ use windows_sys::Win32::Graphics::Gdi::{
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, EmptyClipboard, GetClipboardData, OpenClipboard, SetClipboardData};
 use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalSize, GlobalUnlock, GMEM_MOVEABLE};
 use windows_sys::Win32::System::StationsAndDesktops::{CloseDesktop, OpenInputDesktop};
-use windows_sys::Win32::System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
+use windows_sys::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId, OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION};
 use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     MapVirtualKeyW, SendInput, VkKeyScanW, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP,
@@ -350,6 +350,18 @@ impl Desktop for WindowsDesktop {
             let _ = self.send(&[mouse(MOUSEEVENTF_MOVE, 0)]);
             SetForegroundWindow(window);
             BringWindowToTop(window);
+            // Refused all the same (another app has just taken the foreground, or holds the keyboard): joined to the
+            // input of the thread in front for a moment, this thread counts as that one, which may give it away.
+            let front = GetForegroundWindow();
+            if front != window && !front.is_null() {
+                let ours = GetCurrentThreadId();
+                let theirs = GetWindowThreadProcessId(front, null_mut());
+                if theirs != 0 && theirs != ours && AttachThreadInput(ours, theirs, 1) != 0 {
+                    SetForegroundWindow(window);
+                    BringWindowToTop(window);
+                    AttachThreadInput(ours, theirs, 0);
+                }
+            }
         }
         Ok(())
     }
