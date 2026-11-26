@@ -242,14 +242,16 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Typing helpers (`clear`, `caret`, `enter` on `type_text`): tested on the Mac (in the background), Linux
     (GTK 4) and Windows
   - [x] A compact view (`interactive` on `tree` and `find`): tested on the Mac, Linux and Windows
-  - [ ] Move, resize, minimize, maximize and restore a window (`arrange`)
+  - [x] Move, resize, minimize, maximize and restore a window (`arrange`), shipped in 0.2.42 (#25)
     - [x] Mac, Windows, Linux on X11 (moving and sizing; states need a window manager, which the test display
       lacks)
-    - [ ] Linux on GNOME (built in the extension, API 3; its test runs in the signed-in session)
-  - [x] Launch an app by its name, and list the apps (`apps`, `launch`): tested on the Mac, Linux and Windows
+    - [x] Linux on GNOME: placed, minimized, restored, maximized and placed back in the signed-in session
+  - [x] Launch an app by its name, and list the apps (`apps`, `launch`): tested on the Mac, Linux and Windows;
+    shipped in 0.2.42 (#25)
   - [ ] Virtual desktops (`desktops`)
     - [x] Windows: list, switch, create, remove (Explorer's own shortcuts)
     - [x] Mac: list; switch built with the system's Control-arrow shortcuts but not tested (it would change the
       user's screen); macOS offers no way to add or remove Spaces
-    - [ ] Linux on GNOME: built (extension API 3), test written, not yet run; X11 needs a window manager
+    - [x] Linux on GNOME: list and switch tested in the signed-in session; create and remove built, not tested;
+      X11 needs a window manager
   - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows

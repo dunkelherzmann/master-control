@@ -110,6 +110,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   old code. To run a change without signing out, run `linux/scripts/load-gnome-extension.sh` on the Linux machine
   (after `mc-agent start` put the new files in place): it loads a copy from a new folder named after the UUID
   through Looking Glass, typed with Mutter's RemoteDesktop D-Bus API, which needs no prompt.
+  Raising `API` cuts the Linux worker off the desktop once it is installed (it refuses an older extension), so
+  after `place.sh` puts such a build there, run the loader script on the Linux machine at once (no clone there:
+  send it with `scripts/mc-exec linux --put`).
   Each new GNOME release must be added to `shell-version` in `metadata.json`, or the shell won't load it; GNOME 51
   also dropped `Clutter.get_default_backend()` (the backend now comes from `global.stage.context`).
   `org.gnome.Shell.Screenshot` and `Introspect` refuse callers that aren't GNOME's own. The session locks after 5
