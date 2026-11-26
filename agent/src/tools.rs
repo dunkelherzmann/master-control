@@ -212,6 +212,15 @@ pub const TOOLS: &[Tool] = &[
         run: crate::control::launch,
     },
     Tool {
+        name: "desktops",
+        description: "The virtual desktops (workspaces on Linux, Spaces on macOS), numbered from 1, with the current one; or \
+                      `action`: switch to one, create one at the end, or remove one (its windows move to another), \
+                      by `number`. Answers with the desktops as they then are. On macOS only listing and switching \
+                      are offered.",
+        schema: || object(json!({"action": {"type": "string", "enum": ["list", "switch", "create", "remove"], "description": "Default list."}, "number": {"type": "integer", "description": "The desktop to switch to or remove, from 1."}}), &[]),
+        run: crate::control::desktops,
+    },
+    Tool {
         name: "click",
         description: "Click at a position. With `window`, that window is brought to the front first and the position \
                       must be inside it. With `background` (macOS) nothing comes to the front and the pointer stays \

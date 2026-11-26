@@ -341,8 +341,10 @@ fn a_window_is_moved_and_sized_and_states_need_a_window_manager() {
     test.tool("arrange", json!({"window": fixture.title, "width": 250}));
     let now = test.tool("windows", json!({}));
     assert_eq!((&find(&now, &fixture.title)["x"], &find(&now, &fixture.title)["width"]), (&json!(150), &json!(250)), "what isn't given stays");
-    // Xvfb here runs no window manager, and without one there is nothing to minimize or maximize to.
+    // Xvfb here runs no window manager, and without one there is nothing to minimize or maximize to, and no
+    // virtual desktops.
     assert_eq!(test.refused("arrange", json!({"window": fixture.title, "state": "minimized"})), (501, "not_supported".into()));
+    assert_eq!(test.refused("desktops", json!({})), (501, "not_supported".into()));
     assert_eq!(test.refused("arrange", json!({"window": fixture.title})), (400, "bad_input".into()));
 }
 

@@ -250,6 +250,14 @@ pub struct Acted {
     pub expanded: Option<bool>,
 }
 
+/// One of the session's virtual desktops (workspaces on Linux, Spaces on macOS), in the system's order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VirtualDesktop {
+    /// The name the user gave it; empty when it has none.
+    pub name: String,
+    pub current: bool,
+}
+
 /// How a window is shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowState {
@@ -318,6 +326,22 @@ pub trait Desktop {
     /// restored by its id.
     fn hidden_window(&self, _id: u64) -> Option<WindowInfo> {
         None
+    }
+    /// The virtual desktops, in order.
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        Err(DesktopError::not_supported("virtual desktops aren't built for this desktop"))
+    }
+    /// Makes the desktop at this place in the order (from 0) the one shown.
+    fn switch_desktop(&self, _index: usize) -> Result<()> {
+        Err(DesktopError::not_supported("switching virtual desktops isn't built for this desktop"))
+    }
+    /// Adds a desktop at the end.
+    fn create_desktop(&self) -> Result<()> {
+        Err(DesktopError::not_supported("adding virtual desktops isn't built for this desktop"))
+    }
+    /// Removes the desktop at this place; its windows go to another, as the system does it.
+    fn remove_desktop(&self, _index: usize) -> Result<()> {
+        Err(DesktopError::not_supported("removing virtual desktops isn't built for this desktop"))
     }
     /// The text on the clipboard; None when it is empty or holds something that isn't text.
     fn clipboard(&self) -> Result<Option<String>>;

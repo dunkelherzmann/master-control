@@ -11,7 +11,7 @@ use x11rb::protocol::xproto::{
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo, WindowState};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 const SHIFT_L: u32 = 0xffe1;
 
@@ -311,6 +311,37 @@ impl Desktop for X11Desktop {
                 self.maximized(id, false)
             }
         }
+    }
+
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        let count = self.property_numbers(self.root, "_NET_NUMBER_OF_DESKTOPS").first().copied();
+        let Some(count) = count.filter(|_| self.window_manager()) else {
+            return Err(DesktopError::not_supported("no window manager that keeps virtual desktops runs on this X display"));
+        };
+        let current = self.property_numbers(self.root, "_NET_CURRENT_DESKTOP").first().copied();
+        // The names, each ended by a zero byte; there may be fewer than there are desktops.
+        let names = self.property(self.root, "_NET_DESKTOP_NAMES");
+        let mut names = names.split(|byte| *byte == 0).map(|name| String::from_utf8_lossy(name).into_owned());
+        Ok((0..count).map(|index| VirtualDesktop { name: names.next().unwrap_or_default(), current: Some(index) == current }).collect())
+    }
+
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        self.desktops()?;
+        self.ask(self.root, "_NET_CURRENT_DESKTOP", [index as u32, x11rb::CURRENT_TIME, 0, 0, 0])
+    }
+
+    fn create_desktop(&self) -> Result<()> {
+        let count = self.desktops()?.len() as u32;
+        self.ask(self.root, "_NET_NUMBER_OF_DESKTOPS", [count + 1, 0, 0, 0, 0])
+    }
+
+    fn remove_desktop(&self, index: usize) -> Result<()> {
+        // EWMH can only say how many there are: the last one goes.
+        let count = self.desktops()?.len();
+        if index + 1 != count {
+            return Err(DesktopError::not_supported("on X11 only the last desktop can be removed (window managers are told only how many there are)"));
+        }
+        self.ask(self.root, "_NET_NUMBER_OF_DESKTOPS", [count as u32 - 1, 0, 0, 0, 0])
     }
 
     fn pointer(&self) -> Result<(i32, i32)> {

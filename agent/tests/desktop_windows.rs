@@ -345,6 +345,35 @@ fn a_window_is_moved_sized_minimized_maximized_and_restored() {
     assert_eq!(test.refused("arrange", json!({"window": "no such window anywhere", "x": 5})), (404, "window_not_found".into()));
 }
 
+#[test]
+fn virtual_desktops_are_created_switched_and_removed_and_the_first_is_shown_again() {
+    let (_turn, test, _fixture) = start("mc test: desktops");
+    let before = test.tool("desktops", json!({}));
+    let count = before["desktops"].as_array().unwrap().len();
+    let home = before["current"].as_u64().expect("a desktop is shown");
+    let outcome = (|| {
+        let mut said = serde_json::Map::new();
+        said.insert("created".into(), test.tool("desktops", json!({"action": "create"})));
+        said.insert("home".into(), test.tool("desktops", json!({"action": "switch", "number": home})));
+        said.insert("new".into(), test.tool("desktops", json!({"action": "switch", "number": count + 1})));
+        said.insert("removed".into(), test.tool("desktops", json!({"action": "remove", "number": count + 1})));
+        Value::Object(said)
+    })();
+    // Whatever happened, the desktop that was shown is shown again.
+    let now = test.tool("desktops", json!({}));
+    if now["current"] != home {
+        test.tool("desktops", json!({"action": "switch", "number": home}));
+    }
+    assert_eq!(outcome["created"]["desktops"].as_array().unwrap().len(), count + 1, "{outcome}");
+    assert_eq!(outcome["created"]["current"], count + 1, "a new desktop is shown: {outcome}");
+    assert_eq!(outcome["home"]["current"], home, "{outcome}");
+    assert_eq!(outcome["new"]["current"], count + 1, "{outcome}");
+    assert_eq!(outcome["removed"]["desktops"].as_array().unwrap().len(), count, "{outcome}");
+    assert_eq!(test.tool("desktops", json!({}))["current"], home);
+    assert_eq!(test.refused("desktops", json!({"action": "switch", "number": 0})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "remove", "number": count + 5})), (400, "bad_input".into()));
+}
+
 /// A Start menu shortcut of the test's own, removed when the test ends.
 struct Shortcut(std::path::PathBuf);
 

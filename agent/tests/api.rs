@@ -174,7 +174,7 @@ fn status_describes_the_machine() {
     assert_eq!(status["capabilities"]["exec"], true);
     assert_eq!(status["capabilities"]["screen"], status["capabilities"]["input"]);
     assert_eq!(status["capabilities"]["observe"], cfg!(any(windows, target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))));
-    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
+    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
 }
 
 #[test]
@@ -483,7 +483,7 @@ fn mcp_over_http_lists_and_calls_the_tools() {
 
     let (_, listed) = test.mcp(json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
+    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
         assert!(tool["description"].as_str().unwrap().len() > 20);
@@ -704,6 +704,21 @@ fn on_a_mac_apps_are_listed_and_launched_by_name() {
     let _ = std::fs::remove_dir_all(&folder);
     assert_eq!(launched["app"]["name"], json!(name), "{launched}");
     assert!(ran, "the app ran: {launched}");
+}
+
+/// The Spaces are listed with the one shown; nothing is switched, since that would change the user's screen.
+#[cfg(target_os = "macos")]
+#[test]
+fn on_a_mac_the_spaces_are_listed() {
+    let test = Test::new();
+    let listed = test.tool("desktops", json!({}));
+    let desktops = listed["desktops"].as_array().unwrap();
+    assert!(!desktops.is_empty() && desktops.iter().any(|desktop| desktop["current"] == true), "{listed}");
+    assert_eq!(listed["current"], desktops.iter().position(|desktop| desktop["current"] == true).map(|index| index + 1).unwrap(), "{listed}");
+    assert_eq!(test.refused("desktops", json!({"action": "switch", "number": desktops.len() + 1})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "switch"})), (400, "bad_input".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "create"})), (501, "not_supported".into()));
+    assert_eq!(test.refused("desktops", json!({"action": "rename"})), (400, "bad_input".into()));
 }
 
 /// The Mac window tests take turns: each compares the window list before and after, which the other's window moves.

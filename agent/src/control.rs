@@ -9,7 +9,7 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, WindowInfo, WindowState};
+use crate::desktop::{self, keys, Button, Desktop, DesktopError, Element, ElementAction, Rect, Target, TreeLimits, VirtualDesktop, WindowInfo, WindowState};
 use crate::tools::{number, required_text, text, ToolError};
 use crate::{state, Agent};
 
@@ -465,6 +465,74 @@ pub fn arrange(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
         answer["note"] = json!("the window isn't exactly where it was asked to be: the app or the window manager kept it to a place or size it allows");
     }
     Ok(delivered(Some(now), answer))
+}
+
+/// What the desktops must show once a change is done.
+enum Shown {
+    Current(usize),
+    More,
+    Fewer,
+}
+
+fn desktops_json(desktops: &[VirtualDesktop]) -> Value {
+    let list: Vec<Value> = desktops.iter().enumerate().map(|(index, desktop)| json!({ "number": index + 1, "name": desktop.name, "current": desktop.current })).collect();
+    let current = desktops.iter().position(|desktop| desktop.current).map(|index| index + 1);
+    json!({ "desktops": list, "current": current })
+}
+
+/// The virtual desktops: listed, or one switched to, added or removed, and listed as they then are.
+pub fn desktops(_agent: &Agent, args: &Value) -> Result<Value, ToolError> {
+    let action = text(args, "action")?.unwrap_or("list");
+    let desktop = open()?;
+    let before = desktop.desktops()?;
+    let numbered = || -> Result<usize, ToolError> {
+        let number = number(args, "number")?.ok_or_else(|| ToolError::bad(format!("number is required to {action} a desktop: its place in the list, from 1")))? as usize;
+        if number == 0 || number > before.len() {
+            return Err(ToolError::bad(format!("there are {} desktops; number {number} isn't one", before.len())));
+        }
+        Ok(number - 1)
+    };
+    // What the list must show once the system has done it: it animates the change, which takes a moment.
+    let count = before.len();
+    let expected = match action {
+        "list" => return Ok(desktops_json(&before)),
+        "switch" => {
+            let index = numbered()?;
+            desktop.switch_desktop(index)?;
+            Shown::Current(index)
+        }
+        "create" => {
+            desktop.create_desktop()?;
+            Shown::More
+        }
+        "remove" => {
+            let index = numbered()?;
+            if count == 1 {
+                return Err(ToolError::bad("that is the only desktop; there must always be one"));
+            }
+            desktop.remove_desktop(index)?;
+            Shown::Fewer
+        }
+        other => return Err(ToolError::bad(format!("action is list, switch, create or remove, not {other}"))),
+    };
+    let done = |now: &[VirtualDesktop]| match expected {
+        Shown::Current(index) => now.get(index).is_some_and(|desktop| desktop.current),
+        Shown::More => now.len() > count,
+        Shown::Fewer => now.len() < count,
+    };
+    let deadline = Instant::now() + Duration::from_secs(4);
+    loop {
+        let now = desktop.desktops()?;
+        if done(&now) {
+            let mut answer = desktops_json(&now);
+            answer["delivered"] = json!(true);
+            return Ok(answer);
+        }
+        if Instant::now() >= deadline {
+            return Err(ToolError::failed(format!("the desktops were asked to {action} and the system didn't show it within 4 s: {}", desktops_json(&now))));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 /// The apps the system's launcher offers, by name: all of them, or those whose name contains `name`.

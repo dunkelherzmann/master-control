@@ -16,7 +16,7 @@ use std::time::Instant;
 
 use objc::runtime::Object;
 
-use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, WindowInfo, WindowState};
+use super::{Button, Desktop, DesktopError, Image, Key, Rect, Result, VirtualDesktop, WindowInfo, WindowState};
 
 type Id = *mut Object;
 
@@ -508,6 +508,36 @@ impl Desktop for MacDesktop {
         })
     }
 
+    fn desktops(&self) -> Result<Vec<VirtualDesktop>> {
+        Ok(spaces()?.into_iter().map(|space| VirtualDesktop { name: if space.full_screen { "full screen".into() } else { String::new() }, current: space.current }).collect())
+    }
+
+    // macOS publishes no way to change Spaces but its own shortcuts: Control-Left and Control-Right ("Move left a
+    // space", on unless the user turned them off in Keyboard Shortcuts > Mission Control). They move on the screen
+    // with the menu bar.
+    fn switch_desktop(&self, index: usize) -> Result<()> {
+        self.may_send_input()?;
+        let spaces = spaces()?;
+        let main = spaces.first().map(|space| space.display.clone()).unwrap_or_default();
+        let on_main: Vec<&Space> = spaces.iter().filter(|space| space.display == main).collect();
+        let target = spaces.get(index).ok_or_else(|| DesktopError::failed("macOS: there is no such Space"))?;
+        if target.display != main {
+            return Err(DesktopError::not_supported("only the Spaces of the screen with the menu bar can be switched to"));
+        }
+        let from = on_main.iter().position(|space| space.current).unwrap_or(0);
+        let to = on_main.iter().position(|space| space.id == target.id).unwrap_or(from);
+        let toward = if to > from { Key::Right } else { Key::Left };
+        for _ in 0..from.abs_diff(to) {
+            self.key(Key::Ctrl, true)?;
+            let pressed = self.key(toward, true).and_then(|()| self.key(toward, false));
+            self.key(Key::Ctrl, false)?;
+            pressed?;
+            // Each switch slides; one sent during the slide is lost.
+            std::thread::sleep(std::time::Duration::from_millis(450));
+        }
+        Ok(())
+    }
+
     fn pointer(&self) -> Result<(i32, i32)> {
         // SAFETY: an empty event carries the pointer's place; it is released at once.
         let at = unsafe {
@@ -948,6 +978,60 @@ fn window_number(element: *mut c_void) -> Option<u64> {
     let mut number = 0u32;
     // SAFETY: the element is live and the number a local.
     (unsafe { (*lookup)?(element, &mut number) } == 0 && number != 0).then_some(u64::from(number))
+}
+
+/// One Space, as the window server lists them: per screen, in order.
+#[derive(Debug, Clone)]
+struct Space {
+    id: u64,
+    display: String,
+    current: bool,
+    full_screen: bool,
+}
+
+/// The Spaces of every screen, the menu bar's screen first. Read through the window server's own calls, which
+/// macOS has but doesn't publish (Mission Control and the Dock use them).
+fn spaces() -> Result<Vec<Space>> {
+    type Connection = unsafe extern "C" fn() -> i32;
+    type Copy = unsafe extern "C" fn(i32) -> Id;
+    static CALLS: std::sync::OnceLock<Option<(Connection, Copy)>> = std::sync::OnceLock::new();
+    let calls = CALLS.get_or_init(|| {
+        // SAFETY: looks names up among the libraries already loaded (AppKit brings the window server's); a missing
+        // name gives null. When present, the calls have had these shapes in every release that has them.
+        unsafe {
+            let connection = libc::dlsym(libc::RTLD_DEFAULT, c"CGSMainConnectionID".as_ptr());
+            let copy = libc::dlsym(libc::RTLD_DEFAULT, c"CGSCopyManagedDisplaySpaces".as_ptr());
+            (!connection.is_null() && !copy.is_null()).then(|| (std::mem::transmute::<*mut c_void, Connection>(connection), std::mem::transmute::<*mut c_void, Copy>(copy)))
+        }
+    });
+    let (connection, copy) = calls.ok_or_else(|| DesktopError::not_supported("this macOS doesn't let Spaces be read"))?;
+    pooled(|| unsafe {
+        let displays = copy(connection());
+        if displays.is_null() {
+            return Err(DesktopError::failed("macOS: the Spaces couldn't be read"));
+        }
+        let number = |object: Id| -> u64 { if object.is_null() { 0 } else { msg_send![object, unsignedLongLongValue] } };
+        let mut spaces = Vec::new();
+        let count: usize = msg_send![displays, count];
+        for index in 0..count {
+            let display: Id = msg_send![displays, objectAtIndex: index];
+            let value = |of: Id, key: &str| -> Id { msg_send![of, objectForKey: text(key)] };
+            let name = string_of(value(display, "Display Identifier"));
+            let current_space = value(display, "Current Space");
+            let current = if current_space.is_null() { 0 } else { number(value(current_space, "ManagedSpaceID")) };
+            let list = value(display, "Spaces");
+            let listed: usize = if list.is_null() { 0 } else { msg_send![list, count] };
+            for at in 0..listed {
+                let space: Id = msg_send![list, objectAtIndex: at];
+                let id = number(value(space, "ManagedSpaceID"));
+                // 0 is a desktop; 4 an app in full screen.
+                let full_screen = number(value(space, "type")) == 4;
+                spaces.push(Space { id, display: name.clone(), current: id == current, full_screen });
+            }
+        }
+        CFRelease(displays as *const c_void);
+        Ok(spaces)
+    })
 }
 
 /// What has the keyboard inside an app: its role and name, as the tree would tell them.
