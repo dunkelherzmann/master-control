@@ -351,14 +351,15 @@ fn virtual_desktops_are_created_switched_and_removed_and_the_first_is_shown_agai
     let before = test.tool("desktops", json!({}));
     let count = before["desktops"].as_array().unwrap().len();
     let home = before["current"].as_u64().expect("a desktop is shown");
-    let outcome = (|| {
+    let act = || {
         let mut said = serde_json::Map::new();
         said.insert("created".into(), test.tool("desktops", json!({"action": "create"})));
         said.insert("home".into(), test.tool("desktops", json!({"action": "switch", "number": home})));
         said.insert("new".into(), test.tool("desktops", json!({"action": "switch", "number": count + 1})));
         said.insert("removed".into(), test.tool("desktops", json!({"action": "remove", "number": count + 1})));
         Value::Object(said)
-    })();
+    };
+    let outcome = act();
     // Whatever happened, the desktop that was shown is shown again.
     let now = test.tool("desktops", json!({}));
     if now["current"] != home {

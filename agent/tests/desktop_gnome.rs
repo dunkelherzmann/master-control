@@ -122,7 +122,7 @@ fn a_wayland_window_is_arranged_and_the_workspaces_are_switched() {
     std::thread::sleep(Duration::from_millis(500));
     let before = test.tool("desktops", json!({}));
     let home = before["current"].clone();
-    let outcome = (|| {
+    let act = || {
         let mut said = serde_json::Map::new();
         said.insert("placed".into(), test.tool("arrange", json!({"window": title, "x": 120, "y": 140, "width": 520, "height": 380})));
         said.insert("minimized".into(), test.tool("arrange", json!({"window": title, "state": "minimized"})));
@@ -135,7 +135,8 @@ fn a_wayland_window_is_arranged_and_the_workspaces_are_switched() {
             said.insert("switched".into(), test.tool("desktops", json!({"action": "switch", "number": other})));
         }
         Value::Object(said)
-    })();
+    };
+    let outcome = act();
     let now = test.tool("desktops", json!({}));
     if now["current"] != home {
         test.tool("desktops", json!({"action": "switch", "number": home}));
