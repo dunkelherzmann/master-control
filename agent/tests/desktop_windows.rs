@@ -406,8 +406,11 @@ fn an_app_is_launched_by_its_start_menu_name_and_its_window_awaited() {
     assert_eq!(listed["apps"].as_array().unwrap().len(), 1, "{listed}");
     assert!(test.tool("apps", json!({}))["apps"].as_array().unwrap().len() > 5, "the Start menu lists the system's apps too");
     let launched = test.tool("launch", json!({"name": name.to_lowercase(), "wait_s": 60}));
-    assert_eq!((&launched["app"]["name"], &launched["window"]["title"]), (&json!(name), &json!("mc test: launched")), "{launched}");
-    let window = launched["window"]["id"].as_u64().unwrap() as usize as HWND;
+    // The first new window may be the terminal PowerShell starts in before it hides; the form is the shortcut's own.
+    assert_eq!(launched["app"]["name"], json!(name), "{launched}");
+    assert!(launched["window"]["id"].is_u64(), "a new window opened: {launched}");
+    let form = test.tool("wait_for", json!({"window": "mc test: launched", "timeout_s": 60}));
+    let window = form["window"]["id"].as_u64().unwrap() as usize as HWND;
     unsafe { PostMessageW(window, WM_CLOSE, 0, 0) };
     assert_eq!(test.tool("wait_for", json!({"window": "mc test: launched", "gone": true}))["gone"], true);
     assert_eq!(test.refused("launch", json!({"name": "no such app anywhere at all"})), (404, "not_found".into()));
