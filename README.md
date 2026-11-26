@@ -150,8 +150,9 @@ code, including the traps I fell into.
 cargo test --workspace
 ```
 
-`scripts/check.sh` runs the tests and lints on a Mac, a Linux and a Windows machine over ssh. Copy
-`scripts/hosts.env.example` to `scripts/hosts.env` and put your own machines' names in it. The GUI tests open
+`scripts/check.sh` runs the tests and lints on a Mac, a Linux and a Windows machine, reaching the other two through
+Master Control itself as `linux` and `windows`. If yours have other names, copy `scripts/hosts.env.example` to
+`scripts/hosts.env` and put them in it. The GUI tests open
 real windows and send real input, so run them on machines nobody is working on.
 
 ## Versioning

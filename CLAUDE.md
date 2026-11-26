@@ -4,8 +4,8 @@ Herbert's rules are in the `herberts-preferences` skill; this file holds what is
 The spec is `specs.md` (his name for it here); `bugs.md`, `enhancements.md` and `pending.md` are at the root;
 the reference study is in `.investigation/` (untracked). The repo is public on GitHub
 (`dunkelherzmann/master-control`, since 2026-11-12): nothing private goes into tracked files (no machine names,
-LAN addresses, local paths or pictures of real desktops; the machines' ssh names live in the untracked
-`scripts/hosts.env`). The public history starts at 0.2; what came before is in the local branch
+LAN addresses, local paths or pictures of real desktops; other names for the machines go in the
+untracked `scripts/hosts.env`). The public history starts at 0.2; what came before is in the local branch
 `local-history-do-not-push`, which holds private pictures and names: push `main` by name, never `--all` or
 `--mirror`.
 
@@ -31,10 +31,10 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 ## Build, test, install
 
 - `cargo test --workspace` on the Mac; `scripts/check.sh` on all three machines (sends the last commit to Linux
-  and Windows over ssh; `-w` sends the working tree). It runs clippy on each machine: code gated per system
+  and Windows through Master Control, `mc-exec`; `-w` sends the working tree). It runs clippy on each machine: code gated per system
   leaves helpers and imports unused elsewhere, which only that system's lint shows.
 - Linux GUI tests use Xvfb (they set `DISPLAY` and clear `WAYLAND_DISPLAY`, which picks the X11 backend).
-  Windows GUI tests must run in the desktop session (`mctl exec --cwd`): ssh alone has no screen.
+  Windows GUI tests need the desktop session, which is where Master Control's `exec` runs them.
 - `macos/scripts/build.sh` makes `dist/Master Control.app`; the Linux file is the static musl build, and the Linux
   worker is that same file (`master-control agent start`); there is no separate Linux `mc-agent` to ship.
 - `scripts/place.sh [mac linux windows]` builds the last commit and installs it on all three (master, apps,

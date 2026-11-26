@@ -230,3 +230,4 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   terminal). Tried in a fresh Ubuntu 24.04 container as root, as a user without sudo and with a password-asking sudo.
   Not tried by hand: the desktop's password prompt (pkexec).
 
+- [x] 2026-11-26: **Scripts run commands on the Linux and Windows machines through Master Control (mc-exec) instead of SSH** (developer tooling): `scripts/check.sh`, `scripts/place.sh` and `scripts/gen-syscalls.sh` copy files with `mc-exec --put` and run through `mc-exec`, by the Master Control names `linux` and `windows`; `place.sh` starts the worker replacement outside the worker (a systemd unit, a scheduled task) and waits for the new one to answer. Shipped in #22.
