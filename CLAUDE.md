@@ -31,7 +31,7 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 ## Build, test, install
 
 - `cargo test --workspace` on the Mac; `scripts/check.sh` on all three machines (sends the last commit to Linux
-  and Windows through Master Control, `mc-exec`; `-w` sends the working tree). It runs clippy on each machine: code gated per system
+  and Windows through Master Control with `scripts/mc-exec`, the copy in this repository; `-w` sends the working tree). It runs clippy on each machine: code gated per system
   leaves helpers and imports unused elsewhere, which only that system's lint shows.
 - Linux GUI tests use Xvfb (they set `DISPLAY` and clear `WAYLAND_DISPLAY`, which picks the X11 backend).
   Windows GUI tests need the desktop session, which is where Master Control's `exec` runs them.

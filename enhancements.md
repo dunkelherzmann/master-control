@@ -231,3 +231,5 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   Not tried by hand: the desktop's password prompt (pkexec).
 
 - [x] 2026-11-26: **Scripts run commands on the Linux and Windows machines through Master Control (mc-exec) instead of SSH** (developer tooling): `scripts/check.sh`, `scripts/place.sh` and `scripts/gen-syscalls.sh` copy files with `mc-exec --put` and run through `mc-exec`, by the Master Control names `linux` and `windows`; `place.sh` starts the worker replacement outside the worker (a systemd unit, a scheduled task) and waits for the new one to answer. Shipped in #22.
+
+- [ ] 2026-11-26: **`mc-exec` ships with Master Control** (developer tooling): `scripts/mc-exec` runs a command on a machine through `mctl` with its own output and exit code, and copies files of any size (`--put`/`--get`), so the repository's scripts need nothing beyond the master's `mctl` (asked 2026-11-26).

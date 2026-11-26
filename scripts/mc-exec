@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+"""Run a command on a machine through Master Control and act like ssh: its output on stdout and stderr, its exit code
+as ours. Scripts use it in place of `ssh HOST "command"` and `scp`. Needs only Python 3 and the master's `mctl`
+(~/.local/opt/master-control/mctl, from Start on the master; or set MCTL).
+
+    mc-exec MACHINE "command line"             # sh on Linux and macOS, cmd on Windows
+    mc-exec MACHINE --cwd ~/Projects/x "cargo test"
+    mc-exec MACHINE --timeout 3600 "…"         # seconds; default 3600 (the most Master Control allows)
+    mc-exec MACHINE --stdin "…"                # send our stdin (text) to the command
+    mc-exec MACHINE --put LOCAL REMOTE         # copy a file there (any size; in place of scp)
+    mc-exec MACHINE --get REMOTE LOCAL         # copy a file from there
+
+MACHINE is a name from `mctl machines` (linux, windows, master). Exit 255 when Master Control can't reach it,
+as ssh does. Master Control keeps the end of long output; the exit code is always the command's own.
+"""
+import base64
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+MCTL = next((p for p in (os.environ.get("MCTL"), str(Path.home() / ".local/opt/master-control/mctl"),
+                         shutil.which("mctl")) if p and os.path.isfile(p)), None)
+
+
+CHUNK = 384 * 1024  # raw bytes per push: its base64 must fit on one command line (macOS allows about 1 MB)
+
+
+def call(machine, tool, args):
+    out = subprocess.run([MCTL, "call", machine, tool, json.dumps(args)], capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    try:
+        return json.loads(out.stdout)
+    except ValueError:
+        sys.stderr.write(out.stdout + out.stderr)
+        return None
+
+
+def put(machine, local, remote):
+    data = Path(local).read_bytes()
+    windows = (call(machine, "exec", {"command": "ver"}) or {}).get("stdout", "").lower().find("windows") >= 0
+    if len(data) <= CHUNK:
+        return 0 if call(machine, "push", {"path": remote, "content_base64": base64.b64encode(data).decode()}) \
+            is not None else 255
+    parts = []
+    for n, start in enumerate(range(0, len(data), CHUNK)):
+        part = f"{remote}.part{n:05d}"
+        if call(machine, "push", {"path": part, "content_base64": base64.b64encode(data[start:start + CHUNK]).decode()}) is None:
+            return 255
+        parts.append(part)
+    if windows:
+        win = lambda p: p.replace("/", "\\")
+        join = f'copy /b /y {"+".join(chr(34) + win(p) + chr(34) for p in parts)} "{win(remote)}" >nul && del /q ' + \
+            " ".join(chr(34) + win(p) + chr(34) for p in parts)
+    else:
+        join = f'cat {" ".join(chr(39) + p + chr(39) for p in parts)} > \'{remote}\' && rm -f ' + \
+            " ".join(chr(39) + p + chr(39) for p in parts)
+    result = call(machine, "exec", {"command": join, "timeout_s": 600})
+    return 0 if result and result.get("exit_code") == 0 else 1
+
+
+def get(machine, remote, local):
+    offset, chunks = 0, []
+    while True:
+        result = call(machine, "pull", {"path": remote, "offset": offset, "max_bytes": 262144})
+        if not result or "content_base64" not in result:
+            print(f"mc-exec: {machine}: can't read {remote}: {result}", file=sys.stderr)
+            return 1
+        piece = base64.b64decode(result["content_base64"])
+        chunks.append(piece)
+        offset += len(piece)
+        if result.get("eof", result.get("end", not piece)) or not piece:
+            break
+    Path(local).write_bytes(b"".join(chunks))
+    return 0
+
+
+def main(argv):
+    if len(argv) < 2 or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        return 0 if argv[:1] in (["-h"], ["--help"]) else 2
+    machine, rest = argv[0], argv[1:]
+    if rest[:1] in (["--put"], ["--get"]) and len(rest) == 3:
+        if not MCTL:
+            return 255
+        return put(machine, rest[1], rest[2]) if rest[0] == "--put" else get(machine, rest[1], rest[2])
+    args = {"timeout_s": 3600}
+    while rest and rest[0].startswith("--"):
+        flag = rest.pop(0)
+        if flag == "--cwd":
+            args["cwd"] = rest.pop(0)
+        elif flag == "--timeout":
+            args["timeout_s"] = int(rest.pop(0))
+        elif flag == "--stdin":
+            args["stdin"] = sys.stdin.read()
+        else:
+            print(f"mc-exec: unknown option {flag}", file=sys.stderr)
+            return 2
+    if not rest:
+        print("mc-exec: no command given", file=sys.stderr)
+        return 2
+    args["command"] = " ".join(rest)
+    if not MCTL:
+        print("mc-exec: Master Control (mctl) is not installed here", file=sys.stderr)
+        return 255
+    out = subprocess.run([MCTL, "call", machine, "exec", json.dumps(args)], capture_output=True, text=True,
+                         encoding="utf-8", errors="replace")
+    try:
+        result = json.loads(out.stdout)
+    except ValueError:
+        sys.stderr.write(out.stdout + out.stderr)
+        print(f"mc-exec: {machine} did not answer", file=sys.stderr)
+        return 255
+    if "exit_code" not in result:
+        print(f"mc-exec: {machine}: {result.get('error', result)}", file=sys.stderr)
+        return 255
+    sys.stdout.write(result.get("stdout", ""))
+    sys.stderr.write(result.get("stderr", ""))
+    if result.get("timed_out"):
+        print(f"mc-exec: {machine}: stopped after {args['timeout_s']} s", file=sys.stderr)
+        return 124
+    return int(result["exit_code"]) if result["exit_code"] is not None else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

@@ -11,6 +11,7 @@
 # non-zero if any failed. Logs go to .build/check/<machine>.log.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PATH="$ROOT/scripts:$PATH"  # mc-exec: the copy in this repository, so nothing beyond mctl is needed
 cd "$ROOT" || exit 2
 # The other two machines, by their Master Control names (`mctl machines`): linux and windows, or others put in
 # scripts/hosts.env (not kept with the project) or the environment. See scripts/hosts.env.example.

@@ -4,6 +4,7 @@
 # come from the kernel's own list and not from memory. Run it again for newer kernels.
 set -eu
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+PATH="$ROOT/scripts:$PATH"  # mc-exec: the copy in this repository, so nothing beyond mctl is needed
 OUT="$ROOT/agent/src/observe/syscalls_x86_64.rs"
 [ -f "$ROOT/scripts/hosts.env" ] && . "$ROOT/scripts/hosts.env"
 LINUX_HOST="${MC_LINUX_HOST:-linux}"
