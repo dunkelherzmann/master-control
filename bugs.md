@@ -164,3 +164,9 @@ marked *found in testing*.
   **Fixed 2026-11-19 (#14, 0.2.14):** placed on all three machines; a conversation's folder on Linux and Windows
   was gone once it closed, and the first sweep cut Linux's job folders from 620 to 182. The leftovers already in
   the homes went to each machine's Trash.
+
+- [ ] 2026-11-26: **Windows trace sessions outlive a killed recorder** (Windows; *found in testing*). Three
+  `master-control-*` kernel trace sessions were still running with nothing observing, after test runs whose
+  processes were ended from outside; they took Windows' few places, so later observations failed with "all are
+  taken" until they were stopped by hand (`logman stop NAME -ets`). The recorder should stop stale sessions of
+  its own name on start, or name them so a new recorder can tell they are orphaned.
