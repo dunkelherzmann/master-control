@@ -300,6 +300,20 @@ fn modifier_flag(key: Key) -> u64 {
     }
 }
 
+/// The flags a real Mac keyboard puts on a key's own events: the arrows, Home, End, Page Up and Down, Forward Delete,
+/// Help and the F keys carry "Fn" (the arrows also "keypad"). macOS's own shortcuts are stored with them: Mission
+/// Control's Control-Right ("Move right a space") is Control and Fn, so an arrow sent without Fn is not that shortcut.
+const SECONDARY_FN: u64 = 0x80_0000;
+const NUMERIC_PAD: u64 = 0x20_0000;
+
+fn own_flags(key: Key) -> u64 {
+    match key {
+        Key::Left | Key::Right | Key::Up | Key::Down => SECONDARY_FN | NUMERIC_PAD,
+        Key::Home | Key::End | Key::PageUp | Key::PageDown | Key::Delete | Key::F(_) => SECONDARY_FN,
+        _ => 0,
+    }
+}
+
 impl MacDesktop {
     pub fn open() -> Result<MacDesktop> {
         Ok(MacDesktop)
@@ -610,7 +624,7 @@ impl Desktop for MacDesktop {
         } else {
             held.modifiers &= !flag;
         }
-        let flags = held.modifiers;
+        let flags = held.modifiers | own_flags(key);
         drop(held);
         // SAFETY: plain values; the event is released by `post`.
         unsafe {
@@ -675,7 +689,7 @@ impl Desktop for MacDesktop {
                 unsafe {
                     let event = CGEventCreateKeyboardEvent(std::ptr::null(), code, down);
                     if !event.is_null() {
-                        CGEventSetFlags(event, flags);
+                        CGEventSetFlags(event, flags | own_flags(key));
                     }
                     post_to(window.pid, event)?;
                 }
@@ -1575,5 +1589,14 @@ mod tests {
         assert_eq!(key_code(Key::Insert), None);
         assert_eq!(key_code(Key::F(21)), None);
         assert_eq!((modifier_flag(Key::Meta), modifier_flag(Key::Char('a'))), (COMMAND, 0));
+    }
+
+    #[test]
+    fn keys_carry_the_flags_a_real_keyboard_gives_them() {
+        // Mission Control's "Move right a space" is stored as Control and Fn (0x840000): an arrow needs Fn to match.
+        assert_eq!((CONTROL | own_flags(Key::Right)) & 0x84_0000, 0x84_0000);
+        assert_eq!(own_flags(Key::Left), SECONDARY_FN | NUMERIC_PAD);
+        assert_eq!((own_flags(Key::F(5)), own_flags(Key::PageDown)), (SECONDARY_FN, SECONDARY_FN));
+        assert_eq!((own_flags(Key::Char('a')), own_flags(Key::Enter), own_flags(Key::Ctrl)), (0, 0, 0));
     }
 }

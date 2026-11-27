@@ -234,11 +234,12 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
 
 - [x] 2026-11-26: **`mc-exec` ships with Master Control** (developer tooling): `scripts/mc-exec` runs a command on a machine through `mctl` with its own output and exit code, and copies files of any size (`--put`/`--get`), so the repository's scripts need nothing beyond the master's `mctl` (asked 2026-11-26). Shipped in #23.
 
-- [ ] 2026-11-26: **Close the gaps found against Windows-Use** (all platforms; asked after the window-control
+- [x] 2026-11-26: **Close the gaps found against Windows-Use** (all platforms; asked after the window-control
   comparison: "add them and build them, see if they can be implemented on Linux and Mac also").
-  - [ ] Click with keys held (`hold` on the clicks)
+  - [x] Click with keys held (`hold` on the clicks)
     - [x] Linux (X11), Windows
-    - [ ] Mac: built; not tested, since a real click there would move the user's pointer
+    - [x] Mac: tested 2026-11-27 after the take-over pop-up let it in: a test window saw each click with Command,
+      Shift, Option, Control and Command-Shift held, and nothing stayed held after
   - [x] Typing helpers (`clear`, `caret`, `enter` on `type_text`): tested on the Mac (in the background), Linux
     (GTK 4) and Windows
   - [x] A compact view (`interactive` on `tree` and `find`): tested on the Mac, Linux and Windows
@@ -248,10 +249,10 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     - [x] Linux on GNOME: placed, minimized, restored, maximized and placed back in the signed-in session
   - [x] Launch an app by its name, and list the apps (`apps`, `launch`): tested on the Mac, Linux and Windows;
     shipped in 0.2.42 (#25)
-  - [ ] Virtual desktops (`desktops`)
+  - [x] Virtual desktops (`desktops`)
     - [x] Windows: list, switch, create, remove (Explorer's own shortcuts)
-    - [x] Mac: list; switch built with the system's Control-arrow shortcuts but not tested (it would change the
-      user's screen); macOS offers no way to add or remove Spaces
+    - [x] Mac: list, and switch with the system's Control-arrow shortcuts, tested 2026-11-27 (Space 1 to 2 and
+      back, 1 to 3 and back) once the arrows carried Fn (#33); macOS offers no way to add or remove Spaces
     - [x] Linux on GNOME: list and switch tested in the signed-in session; create and remove built, not tested;
       X11 needs a window manager
   - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows
