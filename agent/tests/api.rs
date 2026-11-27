@@ -22,6 +22,9 @@ impl Test {
     fn new() -> Test {
         let home = std::env::temp_dir().join(format!("mc-agent-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&home);
+        // A test's input is never a take-over to ask the person at the machine about (specs.md §3.4).
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("take-over.json"), r#"{"active_within_s":0}"#).unwrap();
         Test::in_home(home)
     }
 
@@ -1001,6 +1004,7 @@ fn a_batch_runs_its_steps_in_order_and_hands_answers_on() {
 #[test]
 fn take_over_is_set_and_reported_without_asking() {
     let test = Test::new();
+    std::fs::remove_file(test.home.join("take-over.json")).unwrap();
     let first = test.tool("take_over", json!({"action": "status"}));
     assert_eq!(first["active_within_s"], 60, "{first}");
     assert_eq!((first["granted"].clone(), first["asked"].clone(), first["declined"].clone()), (json!(false), json!(false), json!(false)), "{first}");
