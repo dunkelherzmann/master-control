@@ -283,3 +283,13 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   "add 'Click ok/cancel on this window' to your test windows at the end of the pop-up text so that I can do the
   expected action"). The reason the agent gives is the pop-up's last line, so a test's "Click Cancel on this
   window." is what the person reads last. Shipped in #28.
+
+- [ ] 2026-11-27 (Mac, Linux, Windows): Move to one shared Rust core and the same egui window on all three systems, with the Mac version as the reference: everything shared where it can be, and what egui can't do on a platform done with that platform's own code for the same feature; each version built and tested on its own computer through Master Control.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-27 (Mac, Linux, Windows): The platform rules: each system ships a self-contained installable variant and a portable binary (Mac: the `.app`; Linux: a Flatpak and one static binary; Windows: a zip with an install script that gets past SmartScreen and the missing signature, explained with its caveats, beside the `.exe` installer that installs to Program Files with an uninstaller `.exe` and an entry in installed apps, plus the portable `.exe`); the app follows the system's light or dark mode in each platform's own Finder, File Explorer or window-manager colours; and on top of the feature tests, a side-by-side check against the Mac with pictures of every window.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
