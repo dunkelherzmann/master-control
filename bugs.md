@@ -194,3 +194,10 @@ marked *found in testing*.
   service's cgroup, which systemd stops whenever the service stops or restarts (each log-out, each install). Each
   command now runs in a scope of its own (`systemd-run --user --scope`). Checked live: a text editor started through
   `exec` kept running, with its window, across a restart of the worker; a missing program is still refused at once.
+
+- [x] 2026-11-27: **Switching Spaces on the Mac did nothing** (macOS; *found in testing*). `desktops` with `switch`
+  answered `failed` (the Space shown didn't change within 4 s) although the Control-arrow shortcuts were on: the
+  arrow key events carried Control only, and macOS stores those shortcuts as Control and Fn, the flag a real arrow
+  key carries. **Fixed in #33:** keys get the flags a real Mac keyboard gives them (Fn on the arrows, Home, End,
+  Page Up and Down, Forward Delete and the F keys; keypad on the arrows). Checked: Space 1 to 2 and back, 1 to 3 and
+  back.
