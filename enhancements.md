@@ -277,3 +277,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Mac: shown on release, and closed by the next question
   - [x] Linux (GNOME): shown on release
   - [x] Windows: shown on release, in front of the window in use
+
+- [x] 2026-11-27: **The take-over question ends with the agent's reason** (macOS, Linux, Windows; asked 2026-11-27:
+  "add 'Click ok/cancel on this window' to your test windows at the end of the pop-up text so that I can do the
+  expected action"). The reason the agent gives is the pop-up's last line, so a test's "Click Cancel on this
+  window." is what the person reads last. Shipped in #28.

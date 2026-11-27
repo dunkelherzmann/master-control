@@ -172,15 +172,17 @@ fn doing(tool: &str) -> &'static str {
 }
 
 fn question(reason: Option<&str>, tool: &str) -> String {
-    let why = match reason.map(str::trim).filter(|reason| !reason.is_empty()) {
-        Some(reason) => format!("for this: {reason}"),
-        None => format!("to {}", doing(tool)),
-    };
-    format!(
-        "An AI agent working through Master Control needs to use this computer's mouse and keyboard {why}.\n\nFinish what \
+    let general = format!(
+        "An AI agent working through Master Control needs to use this computer's mouse and keyboard{}.\n\nFinish what \
          you're doing, then click OK to let it take over. Cancel keeps the computer yours: the agent will say what it \
-         couldn't do."
-    )
+         couldn't do.",
+        if reason.is_some_and(|reason| !reason.trim().is_empty()) { String::new() } else { format!(" to {}", doing(tool)) }
+    );
+    // The agent's own words come last, where the person's eye ends up.
+    match reason.map(str::trim).filter(|reason| !reason.is_empty()) {
+        Some(reason) => format!("{general}\n\nWhat for: {reason}"),
+        None => general,
+    }
 }
 
 const DONE: &str = "The AI agent is done with this computer. You can start using it again.";
@@ -622,7 +624,7 @@ mod tests {
 
     #[test]
     fn the_question_carries_the_reason() {
-        assert!(question(Some("checking the download list"), "click").contains("for this: checking the download list"));
+        assert!(question(Some("testing. Click Cancel on this window."), "click").ends_with("What for: testing. Click Cancel on this window."));
         assert!(question(None, "type_text").contains("to type"));
     }
 

@@ -128,8 +128,8 @@ starts at sign-in with highest privileges; on Linux the helper gets root.
 A machine may have a person working at it. Before a tool uses the real pointer or keyboard or brings a window
 forward (`click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `type_text`, `key` without `background`;
 `focus`; `desktops` with an action), the agent checks whether a person used the real mouse, keyboard or touch screen
-within the last 60 seconds. If so, a pop-up on that machine says an AI agent needs the computer, and why, and asks
-the person to finish what they are doing and click OK; Cancel keeps the machine theirs. It has no time limit and no
+within the last 60 seconds. If so, a pop-up on that machine says an AI agent needs the computer (and, last, why, in
+the agent's words), and asks the person to finish what they are doing and click OK; Cancel keeps the machine theirs. It has no time limit and no
 default OK button (Return can't answer it by accident; Escape is Cancel), and the tool waits for the answer.
 
 - **OK** lets the agent's session (one conversation through the master; every `mctl call` counts as one session)
