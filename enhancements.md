@@ -255,3 +255,30 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     - [x] Linux on GNOME: list and switch tested in the signed-in session; create and remove built, not tested;
       X11 needs a window manager
   - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows
+
+- [x] 2026-11-27: **Ask before taking over a computer someone is using** (macOS, Linux, Windows; asked 2026-11-27:
+  "whenever the coding/ai agent detects via master control that the user is currently using the computer … create
+  a pop up window letting the user know that you need to take over and give them an ok button … if the user clicks
+  cancel you record the decision, acknowledge the negative and explain why you can't do the relevant action/test").
+  Before the pointer, the keyboard or bringing a window forward, if the machine had real input in the last minute,
+  a native pop-up asks with OK and Cancel and no timer; OK lets the agent's session carry on, Cancel refuses those
+  actions (`user_declined`) and is recorded; a pop-up says when the machine is the user's again. Shipped in #28
+  (tool `take_over`).
+  - [x] Mac: OK let the session in; Cancel was recorded and refused the next steps with `user_declined`
+  - [x] Linux (GNOME): the same, through the shell extension (API 4)
+  - [x] Windows: the same; real input is told from the agent's and tests' own, and the pop-up is brought forward
+    over a full-screen browser
+
+- [x] 2026-11-27: **A pop-up says when the computer is the person's again** (macOS, Linux, Windows; asked 2026-11-27:
+  "Create a companion pop up letting the user know that they can start using the computer again"). When an agent
+  that was let in is done, a pop-up with one OK button tells the person they can use the computer again, in place of
+  a notification; the agent doesn't wait for it to be clicked. A question closes one still open, and none is shown
+  while a question waits, so they never cover each other. Shipped in #28.
+  - [x] Mac: shown on release, and closed by the next question
+  - [x] Linux (GNOME): shown on release
+  - [x] Windows: shown on release, in front of the window in use
+
+- [x] 2026-11-27: **The take-over question ends with the agent's reason** (macOS, Linux, Windows; asked 2026-11-27:
+  "add 'Click ok/cancel on this window' to your test windows at the end of the pop-up text so that I can do the
+  expected action"). The reason the agent gives is the pop-up's last line, so a test's "Click Cancel on this
+  window." is what the person reads last. Shipped in #28.

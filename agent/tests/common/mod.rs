@@ -28,6 +28,9 @@ impl Test {
     pub fn new() -> Test {
         let home = std::env::temp_dir().join(format!("mc-agent-desktop-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&home);
+        // A test's input is never a take-over to ask the person at the machine about (specs.md §3.4).
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("take-over.json"), r#"{"active_within_s":0}"#).unwrap();
         let running = mc_agent::start(Config { home: home.clone(), port: 0, worker: None }).expect("the agent starts");
         Test { port: running.port, token: running.token().to_string(), running: Some(running), home }
     }

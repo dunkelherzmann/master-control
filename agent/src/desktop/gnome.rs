@@ -18,7 +18,7 @@ pub const EXTENSION: &str = include_str!("../../../linux/gnome-extension/extensi
 const NAME: &str = "io.github.dunkelherzmann.MasterControl";
 const PATH: &str = "/io/github/dunkelherzmann/MasterControl";
 /// The extension's `API`: raised with every change to its methods.
-const API: u32 = 3;
+const API: u32 = 4;
 
 fn failed<E: std::fmt::Display>(error: E) -> DesktopError {
     DesktopError::failed(format!("GNOME Shell: {error}"))
@@ -284,6 +284,28 @@ impl Desktop for GnomeDesktop {
 
     fn act(&self, window: &WindowInfo, target: super::Target, action: &super::ElementAction) -> Result<super::Acted> {
         super::atspi::act(window, target, action)
+    }
+
+    fn idle(&self) -> Option<std::time::Duration> {
+        let ms: u64 = self.call("IdleTime", &()).ok()?;
+        Some(std::time::Duration::from_millis(ms))
+    }
+
+    fn ask(&self, message: &str) -> Result<bool> {
+        let id: u32 = self.call("Ask", &(message,))?;
+        loop {
+            let answer: String = self.call("Answer", &(id,))?;
+            match answer.as_str() {
+                "" => std::thread::sleep(std::time::Duration::from_millis(200)),
+                "ok" => return Ok(true),
+                "cancel" => return Ok(false),
+                _ => return Err(DesktopError::failed("GNOME Shell: the pop-up went away unanswered (the shell or its extension restarted)")),
+            }
+        }
+    }
+
+    fn tell(&self, message: &str) {
+        let _ = self.act("Tell", &(message,));
     }
 
     fn clipboard(&self) -> Result<Option<String>> {

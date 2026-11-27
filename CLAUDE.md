@@ -76,6 +76,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   into another session loop.
 - **Windows runs only a few kernel trace sessions at once** (error 1450): more observation tests in parallel
   than that fail unless the recorder waits for a place.
+- **A test agent that sends input must have asking off** (`{"active_within_s":0}` in its home's `take-over.json`,
+  as `agent/tests/common` and `api.rs` do): otherwise someone using the machine during the run gets the take-over
+  question from the test, and a Cancel fails it (2026-11-27, on Windows).
 - **Tests that run the master's Start or Cleanup must set `MC_AGENTS_HOME`** to a scratch folder: without it
   they edit the real settings of every AI agent on the machine (`~/.claude.json`, `~/.codex/config.toml`, …). The same
   goes for trying `mctl start` by hand: on 2026-11-11 a hand run with only `MC_INSTALL_DIR` set pointed the real

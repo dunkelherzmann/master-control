@@ -54,6 +54,7 @@ extern "C" {}
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
     fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGEventSourceSecondsSinceLastEventType(state: i32, kind: u32) -> f64;
     fn AXIsProcessTrusted() -> bool;
     fn CGMainDisplayID() -> u32;
     fn CGDisplayBounds(display: u32) -> CgRect;
@@ -353,9 +354,7 @@ impl Desktop for MacDesktop {
             if list.is_null() {
                 return Err(DesktopError::failed("macOS: the window list couldn't be read"));
             }
-            let workspace: Id = msg_send![class!(NSWorkspace), sharedWorkspace];
-            let front: Id = msg_send![workspace, frontmostApplication];
-            let front_pid: i32 = if front.is_null() { -1 } else { msg_send![front, processIdentifier] };
+            let front_pid = front_app_pid();
             let count: usize = msg_send![list, count];
             let mut windows: Vec<WindowInfo> = Vec::new();
             let mut dialogs: Vec<usize> = Vec::new();
@@ -755,6 +754,62 @@ impl Desktop for MacDesktop {
         })
     }
 
+    fn idle(&self) -> Option<std::time::Duration> {
+        // 1: the HID system's own state, what the hardware did; ~0: any kind of input event.
+        // SAFETY: a plain call.
+        let seconds = unsafe { CGEventSourceSecondsSinceLastEventType(1, u32::MAX) };
+        (seconds.is_finite() && seconds >= 0.0).then(|| std::time::Duration::from_secs_f64(seconds))
+    }
+
+    fn ask(&self, message: &str) -> Result<bool> {
+        // A "done" pop-up still open (shown by this program or another copy of it) would sit under this one: it goes.
+        let _ = Command::new("/usr/bin/pkill").args(["-f", "--", DONE_MARK]).output();
+        // The text goes in as an argument, never as part of the script. No button is the default, so a person still
+        // typing can't answer by accident with Return; Escape is Cancel.
+        let output = Command::new("/usr/bin/osascript")
+            .args([
+                "-e",
+                ASK_MARK,
+                "-e",
+                "on run argv",
+                "-e",
+                "display dialog (item 1 of argv) with title \"Master Control\" buttons {\"Cancel\", \"OK\"} cancel button \"Cancel\" with icon caution",
+                "-e",
+                "end run",
+                message,
+            ])
+            .stdin(Stdio::null())
+            .output()
+            .map_err(|error| DesktopError::failed(format!("macOS: osascript couldn't be run: {error}")))?;
+        let said = String::from_utf8_lossy(&output.stdout);
+        let error = String::from_utf8_lossy(&output.stderr);
+        if output.status.success() && said.contains("button returned:OK") {
+            Ok(true)
+        } else if error.contains("-128") {
+            Ok(false)
+        } else {
+            Err(DesktopError::failed(format!("macOS: the pop-up couldn't be shown: {}", error.trim())))
+        }
+    }
+
+    fn tell(&self, message: &str) {
+        // Never over a question still waiting for its answer: it would hide it.
+        if Command::new("/usr/bin/pgrep").args(["-f", "--", ASK_MARK]).output().is_ok_and(|found| found.status.success()) {
+            return;
+        }
+        let _ = Command::new("/usr/bin/pkill").args(["-f", "--", DONE_MARK]).output();
+        let shown = Command::new("/usr/bin/osascript")
+            .args(["-e", DONE_MARK, "-e", "on run argv", "-e", "display dialog (item 1 of argv) with title \"Master Control\" buttons {\"OK\"} default button \"OK\" with icon note", "-e", "end run", message])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
+        // Not waited for; reaped when it is clicked or closed.
+        if let Ok(mut shown) = shown {
+            std::thread::spawn(move || shown.wait());
+        }
+    }
+
     fn clipboard(&self) -> Result<Option<String>> {
         let output = Command::new("/usr/bin/pbpaste").output().map_err(|error| DesktopError::failed(format!("macOS: pbpaste couldn't be run: {error}")))?;
         let text = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -961,6 +1016,47 @@ unsafe fn dialog_seen(window: &WindowInfo) -> Option<(String, Rect)> {
         })
         .ok()
     }
+}
+
+/// Comments in the pop-ups' scripts, so a pop-up shown by any copy of the agent is found by its command line.
+const ASK_MARK: &str = "-- master-control take-over question";
+const DONE_MARK: &str = "-- master-control take-over done";
+
+/// The app in front, as the system has it now. NSWorkspace's `frontmostApplication` is a copy a program without a
+/// running main loop keeps from earlier: between two copies of one app (same bundle id) it went on naming the one
+/// that had been in front. The Process Manager's `GetFrontProcess` (deprecated but still in every macOS, looked up by
+/// name) asks every time; NSWorkspace is the fallback.
+fn front_app_pid() -> i32 {
+    #[repr(C)]
+    struct SerialNumber {
+        high: u32,
+        low: u32,
+    }
+    type Front = unsafe extern "C" fn(*mut SerialNumber) -> i32;
+    type Pid = unsafe extern "C" fn(*const SerialNumber, *mut i32) -> i32;
+    static CALLS: std::sync::OnceLock<Option<(Front, Pid)>> = std::sync::OnceLock::new();
+    let calls = CALLS.get_or_init(|| {
+        // SAFETY: looks names up among the libraries already loaded (ApplicationServices is linked); a missing name
+        // gives null. When present, the calls have had these shapes since Mac OS X 10.0.
+        unsafe {
+            let front = libc::dlsym(libc::RTLD_DEFAULT, c"GetFrontProcess".as_ptr());
+            let pid = libc::dlsym(libc::RTLD_DEFAULT, c"GetProcessPID".as_ptr());
+            (!front.is_null() && !pid.is_null()).then(|| (std::mem::transmute::<*mut c_void, Front>(front), std::mem::transmute::<*mut c_void, Pid>(pid)))
+        }
+    });
+    if let Some((front, pid_of)) = calls {
+        let mut process = SerialNumber { high: 0, low: 0 };
+        let mut pid = -1;
+        // SAFETY: both point at locals.
+        if unsafe { front(&mut process) } == 0 && unsafe { pid_of(&process, &mut pid) } == 0 && pid > 0 {
+            return pid;
+        }
+    }
+    pooled(|| unsafe {
+        let workspace: Id = msg_send![class!(NSWorkspace), sharedWorkspace];
+        let front: Id = msg_send![workspace, frontmostApplication];
+        if front.is_null() { -1 } else { msg_send![front, processIdentifier] }
+    })
 }
 
 /// The window server's number for the window an accessibility element is, which is also the window's id in the

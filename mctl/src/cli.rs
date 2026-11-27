@@ -102,6 +102,12 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
         ["unpair", machine] => master.unpair(machine).map_err(|failure| failure.to_string()),
         ["mcp"] => {
             master.begin_work_session();
+            // The master's own machine is handed back to its user once this conversation has left it alone a while.
+            let own = master.own_agent();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(5));
+                own.hand_back_quiet();
+            });
             let served = crate::mcp::serve(&master, std::io::stdin().lock(), std::io::stdout().lock());
             master.end_work_session();
             served.map_err(|error| error.to_string())

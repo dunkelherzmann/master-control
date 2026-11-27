@@ -115,8 +115,12 @@ impl From<DesktopError> for ToolError {
     }
 }
 
+/// The desktop, asking the person using it before the first real input of the call (specs.md §3.4).
 fn open() -> Result<Box<dyn Desktop>, ToolError> {
-    Ok(desktop::open()?)
+    let desktop = desktop::open()?;
+    // Where input can't go ahead at all (macOS without the Accessibility permission) the tool says why, and nobody
+    // is asked.
+    Ok(if crate::takeover::input_allowed() { Box::new(crate::takeover::Asking(desktop)) } else { desktop })
 }
 
 fn window_json(window: &WindowInfo) -> Value {

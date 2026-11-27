@@ -175,3 +175,11 @@ marked *found in testing*.
   `a_running_program_is_followed_and_left_running` and `file_activity_is_recorded_in_order` failed twice in a
   whole `cargo test -p mc-agent` run and passed every time `--test observe_macos` ran alone (four runs, on
   `main` and on this branch): timing under load, not a change in what is recorded.
+
+- [x] 2026-11-27: **`click` and `key` with a window answer `focus_refused` for an app that is in front** (macOS;
+  *found in testing*). Testing Herb's DM, `click` with `element`/`window` and `key` with `window` were refused for
+  a test copy that `lsappinfo front` showed frontmost, while a second copy with the same bundle id ran in the
+  background; `windows` listed the test copy's window first but with `focused: false`.
+  **Fixed in #28:** macOS's NSWorkspace kept naming the other copy as the front app; the front app is now read
+  from the Process Manager (`GetFrontProcess`). Checked with two copies of a test app with one bundle id: `focus`,
+  `key` and `click` reached each copy, and the key landed in its field.

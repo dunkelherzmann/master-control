@@ -66,6 +66,7 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | `push`, `pull` | Copy files to and from the machine |
 | `apps`, `launch` | The apps the system's launcher offers, by the names it shows and an id: the Start menu on Windows (`Get-StartApps`: desktop programs and Store apps), the Applications folders on macOS (`/Applications`, `/System/Applications`, their Utilities, `~/Applications`), the desktop entries on Linux (the XDG data folders, Flatpak's and Snap's; hidden entries left out, the user's own hiding the system's of the same file name). `launch` starts one by its name (exactly, in any case, or a part only one name has) or id, as the launcher would: through the shell on Windows (`shell:AppsFolder`, so it runs with the user's rights, not the agent's), `open -a` on macOS, `gio launch` on Linux; then it waits up to `wait_s` (10 by default) for a new titled window and answers with it, or with `window` null and a note |
 | `desktops` | The virtual desktops, numbered from 1 in the system's order, each with its name (empty when it has none) and whether it is shown; `action` `switch`, `create` (added at the end) or `remove` (its windows go to another, as the system does it; the only desktop can't be), by `number`. The answer is the list once it shows the change, read back (`failed` after 4 s otherwise). Windows: the list, the one shown and the names are Explorer's (`VirtualDesktops` in the user's registry); changes are its own documented shortcuts (Win+Ctrl+Left/Right, Win+Ctrl+D, Win+Ctrl+F4, the desktop to remove shown first). GNOME: the shell extension (Mutter's workspace manager; with dynamic workspaces, GNOME itself also adds and removes empty ones). X11: EWMH (`_NET_NUMBER_OF_DESKTOPS`, `_NET_CURRENT_DESKTOP`, `_NET_DESKTOP_NAMES`; only the last desktop can be removed); with no window manager, `not_supported`. macOS: the Spaces of every screen through the window server's unpublished `CGSCopyManagedDisplaySpaces` (an app in full screen is a Space named "full screen"), switched on the menu bar's screen with the system's Control-Left and Control-Right shortcuts; macOS offers no way to add or remove Spaces but Mission Control's own screen, so those answer `not_supported` |
+| `take_over` | Ask the person using the machine to let the agent take over its mouse and keyboard, hand it back, or say how things stand (§3.4) |
 | `install`, `stop` | Install and stop an app or package |
 | `record_start`, `record_stop` | Video of the screen or one window during a test |
 
@@ -80,7 +81,7 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 - `type_text` types the characters themselves, whatever the keyboard layout has keys for. `key` presses keys and
   chords by name (`enter`, `f5`, `ctrl+shift+t`) and always releases what it pressed.
 - Every action answers with one of: **delivered**, **refused** with an exact reason (`window_not_found`,
-  `focus_refused`, `bad_input` for a point off the screen or outside the window; later also blocked by a
+  `focus_refused`, `user_declined` (§3.4), `bad_input` for a point off the screen or outside the window; later also blocked by a
   higher-privilege window, element gone), or `not_supported` here. It never reports success it can't confirm: a
   pointer that didn't arrive where it was sent is an error.
 - `tree` lists a window's elements, parents before children, each with an id, its depth, role, name, value and
@@ -121,6 +122,38 @@ Accessibility (input, raising windows) for the agent, in System Settings; until 
 which, and `status` lists what is still needed. On macOS positions are in points, and a picture of a dense
 display has more pixels than points, which the tools account for; on Windows the agent
 starts at sign-in with highest privileges; on Linux the helper gets root.
+
+### 3.4 Asking before taking over
+
+A machine may have a person working at it. Before a tool uses the real pointer or keyboard or brings a window
+forward (`click`, `double_click`, `right_click`, `move`, `drag`, `scroll`, `type_text`, `key` without `background`;
+`focus`; `desktops` with an action), the agent checks whether a person used the real mouse, keyboard or touch screen
+within the last 60 seconds. If so, a pop-up on that machine says an AI agent needs the computer (and, last, why, in
+the agent's words), and asks the person to finish what they are doing and click OK; Cancel keeps the machine theirs. It has no time limit and no
+default OK button (Return can't answer it by accident; Escape is Cancel), and the tool waits for the answer.
+
+- **OK** lets the agent's session (one conversation through the master; every `mctl call` counts as one session)
+  carry on without asking again while it keeps working. After a minute without input from that session, with the
+  person back at the machine, the next such step asks again.
+- **Cancel** is written to the machine's `take-over.log` (time, machine, session, reason) and refuses those steps
+  with `user_declined`, saying what to tell the person, until the agent asks again with `take_over`.
+- **Done**: when the session ends, after five quiet minutes, or on `take_over` with `release`, a pop-up with one OK
+  button tells the person they can start using the computer again (only someone who was asked). The agent doesn't
+  wait for it to be clicked. The pop-ups never cover each other: a question closes a "done" pop-up still open, and no "done"
+  pop-up is shown while a question waits for its answer.
+- `take_over` asks outright, with a `reason` shown in the pop-up (and in the ones the tools show later); nobody at
+  the machine means nobody to ask, and the session goes ahead. `status` says how recently the machine was used,
+  what the session was told and the last answers. `active_within_s` sets the time on that machine (0 never asks);
+  it is kept in the agent's `take-over.json`.
+- `background` actions and element actions (`press`, `set_value` and the rest) never ask: they leave the person's
+  pointer, keyboard and window order alone. Input the agent itself sent never counts as a person's.
+
+| | How recent input is known | The pop-up | Done |
+|---|---|---|---|
+| **macOS** | the HID system's own last-input time (`CGEventSourceSecondsSinceLastEventType`) | `display dialog` through `osascript`, the text passed as an argument | `display dialog` with one OK button |
+| **Windows** | low-level mouse and keyboard hooks, which mark input a program sent (the agent's, a test's) and so count only a person's | `MessageBoxW`, on top, Cancel the default button | `MessageBoxW` with one OK button, on a thread of its own |
+| **Linux, GNOME** | the shell's idle monitor, through the extension | a shell modal dialog from the extension, over everything; the agent asks for its answer until there is one | a shell modal dialog with one OK button |
+| **Linux, X11 without GNOME** | not known: it never asks | | |
 
 ## 4. Observation
 

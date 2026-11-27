@@ -2,7 +2,16 @@
 
 use std::mem::{size_of, zeroed};
 use std::ptr::null_mut;
-use std::sync::Once;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Once, OnceLock};
+
+use windows_sys::Win32::Foundation::{LRESULT, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CallNextHookEx, EnumThreadWindows, GetClassNameW, GetMessageW, MessageBoxW, PostMessageW, WM_CLOSE, SetWindowsHookExW, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, LLMHF_INJECTED,
+    LLMHF_LOWER_IL_INJECTED, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_OK, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
+    WH_MOUSE_LL,
+};
 
 use windows_sys::Win32::Foundation::{CloseHandle, GlobalFree, HWND, LPARAM, POINT, RECT};
 use windows_sys::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
@@ -509,6 +518,49 @@ impl Desktop for WindowsDesktop {
         super::uia::keyboard_owner()
     }
 
+    fn idle(&self) -> Option<std::time::Duration> {
+        // What the watcher saw; GetLastInputInfo would count the agent's and tests' own SendInput as someone's.
+        let last = LAST_REAL_INPUT_MS.load(Ordering::Relaxed);
+        (last > 0).then(|| std::time::Duration::from_millis(since_start_ms().saturating_sub(last)))
+    }
+
+    fn ask(&self, message: &str) -> Result<bool> {
+        // A "done" pop-up still open would sit where this one opens, and a click meant for it would answer this.
+        close_told();
+        ASKING.store(true, Ordering::Relaxed);
+        let (text, caption) = (wide(message), wide("Master Control"));
+        // Cancel is the default button, so a person still typing can't answer OK by accident with Enter.
+        // SAFETY: a plain call.
+        bring_up_box_of(unsafe { GetCurrentThreadId() });
+        // SAFETY: both strings end in a nul and outlive the call.
+        let answer = unsafe {
+            MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), MB_OKCANCEL | MB_ICONINFORMATION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND)
+        };
+        ASKING.store(false, Ordering::Relaxed);
+        match answer {
+            0 => Err(last_error("the pop-up couldn't be shown")),
+            IDOK => Ok(true),
+            _ => Ok(false),
+        }
+    }
+
+    fn tell(&self, message: &str) {
+        let (text, caption) = (wide(message), wide("Master Control"));
+        // On a thread of its own, so the agent goes on; the box stays until it is clicked.
+        // Never over a question still waiting for its answer: it would hide it.
+        if ASKING.load(Ordering::Relaxed) {
+            return;
+        }
+        close_told();
+        std::thread::spawn(move || {
+            // SAFETY: plain calls; both strings end in a nul and are owned by this thread for the whole call.
+            let thread = unsafe { GetCurrentThreadId() };
+            TOLD_THREAD.store(thread, Ordering::Relaxed);
+            bring_up_box_of(thread);
+            unsafe { MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND) };
+        });
+    }
+
     fn clipboard(&self) -> Result<Option<String>> {
         open_clipboard()?;
         // SAFETY: the clipboard is open, so the handle stays valid until it is closed; the memory is read only up to
@@ -587,6 +639,109 @@ impl Desktop for WindowsDesktop {
         }
         Ok(())
     }
+}
+
+/// A question is open (every pop-up of the machine comes from the one worker program).
+static ASKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The thread showing the "done" pop-up, while it may still be open; 0 for none.
+static TOLD_THREAD: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+unsafe extern "system" fn close_window(window: HWND, _: LPARAM) -> windows_sys::core::BOOL {
+    // SAFETY: a plain call on a window the system just listed.
+    unsafe { PostMessageW(window, WM_CLOSE, 0, 0) };
+    1
+}
+
+/// The message box among a thread's windows (class `#32770`; the thread may also own hidden helper windows).
+unsafe extern "system" fn first_window(window: HWND, found: LPARAM) -> windows_sys::core::BOOL {
+    let mut class = [0u16; 16];
+    // SAFETY: the buffer's length is passed; `found` is the address of the caller's handle, live for the listing.
+    unsafe {
+        let length = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+        if String::from_utf16_lossy(&class[..length.max(0) as usize]) != "#32770" || IsWindowVisible(window) == 0 {
+            return 1;
+        }
+        *(found as *mut HWND) = window;
+    }
+    0
+}
+
+/// Brings the pop-up a thread is about to show to the front once it is there: the topmost flag alone leaves it behind
+/// a full-screen app (a browser playing a video), and Windows keeps the foreground from a program the person isn't
+/// using. The way `focus` does it gets it there.
+fn bring_up_box_of(thread: u32) {
+    std::thread::spawn(move || {
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let mut found: HWND = null_mut();
+            // SAFETY: the procedure writes only to `found`, which outlives the listing.
+            unsafe { EnumThreadWindows(thread, Some(first_window), &mut found as *mut HWND as LPARAM) };
+            if !found.is_null() {
+                let _ = WindowsDesktop.focus(found as usize as u64);
+                return;
+            }
+        }
+    });
+}
+
+fn close_told() {
+    let thread = TOLD_THREAD.swap(0, Ordering::Relaxed);
+    if thread != 0 {
+        // SAFETY: the system lists that thread's windows; the procedure only posts to them.
+        unsafe { EnumThreadWindows(thread, Some(close_window), 0) };
+    }
+}
+
+// ------------------------------------------------------------------------------------------------ real input
+
+/// When a person last used the real mouse or keyboard, in milliseconds since the watcher started; 0 for not yet.
+static LAST_REAL_INPUT_MS: AtomicU64 = AtomicU64::new(0);
+static WATCH_START: OnceLock<std::time::Instant> = OnceLock::new();
+
+fn since_start_ms() -> u64 {
+    WATCH_START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1
+}
+
+unsafe extern "system" fn mouse_seen(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // SAFETY: for a code of 0 or more the system passes a valid MSLLHOOKSTRUCT.
+    unsafe {
+        if code >= 0 && ((*(lparam as *const MSLLHOOKSTRUCT)).flags & (LLMHF_INJECTED | LLMHF_LOWER_IL_INJECTED)) == 0 {
+            LAST_REAL_INPUT_MS.store(since_start_ms(), Ordering::Relaxed);
+        }
+        CallNextHookEx(null_mut(), code, wparam, lparam)
+    }
+}
+
+unsafe extern "system" fn key_seen(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    // SAFETY: for a code of 0 or more the system passes a valid KBDLLHOOKSTRUCT.
+    unsafe {
+        if code >= 0 && ((*(lparam as *const KBDLLHOOKSTRUCT)).flags & (LLKHF_INJECTED | LLKHF_LOWER_IL_INJECTED)) == 0 {
+            LAST_REAL_INPUT_MS.store(since_start_ms(), Ordering::Relaxed);
+        }
+        CallNextHookEx(null_mut(), code, wparam, lparam)
+    }
+}
+
+/// Watches the desktop's mouse and keyboard on a thread of its own, noting input that no program sent: only a
+/// low-level hook is told which input was injected.
+pub fn watch_input() {
+    static STARTED: Once = Once::new();
+    STARTED.call_once(|| {
+        since_start_ms();
+        std::thread::spawn(|| unsafe {
+            // SAFETY: the procedures live as long as the program; the thread keeps pumping messages, which the
+            // hooks need, until the program ends.
+            let module = GetModuleHandleW(std::ptr::null());
+            let mouse = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_seen), module, 0);
+            let keys = SetWindowsHookExW(WH_KEYBOARD_LL, Some(key_seen), module, 0);
+            if mouse.is_null() && keys.is_null() {
+                return;
+            }
+            let mut message: MSG = zeroed();
+            while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {}
+        });
+    });
 }
 
 #[cfg(test)]

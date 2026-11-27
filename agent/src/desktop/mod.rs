@@ -343,6 +343,18 @@ pub trait Desktop {
     fn remove_desktop(&self, _index: usize) -> Result<()> {
         Err(DesktopError::not_supported("removing virtual desktops isn't built for this desktop"))
     }
+    /// How long since a person last used the real mouse, keyboard or touch screen. None where the system can't tell
+    /// (or nobody has touched it since the agent started watching).
+    fn idle(&self) -> Option<std::time::Duration> {
+        None
+    }
+    /// Shows a pop-up on this machine with OK and Cancel and waits, with no time limit, for the person to answer:
+    /// true for OK.
+    fn ask(&self, _message: &str) -> Result<bool> {
+        Err(DesktopError::not_supported("asking the person at this machine isn't built for this desktop"))
+    }
+    /// Shows a pop-up with one OK button and returns at once, without waiting for it to be clicked. Best effort.
+    fn tell(&self, _message: &str) {}
     /// The text on the clipboard; None when it is empty or holds something that isn't text.
     fn clipboard(&self) -> Result<Option<String>>;
     fn set_clipboard(&self, text: &str) -> Result<()>;
@@ -385,6 +397,13 @@ pub fn open() -> Result<Box<dyn Desktop>> {
     {
         Err(DesktopError::not_supported("screen and input aren't built for this system yet"))
     }
+}
+
+/// Starts watching for real input where the system says how recent it is only to a program watching as it happens
+/// (Windows: input the agent or a test sends is marked as such only there). Once per process; nothing elsewhere.
+pub fn watch_input() {
+    #[cfg(windows)]
+    windows::watch_input();
 }
 
 /// Whether [`open`] can work on this kind of system at all.

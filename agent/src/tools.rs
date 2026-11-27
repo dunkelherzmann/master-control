@@ -22,7 +22,7 @@ const LONGEST_WAIT_MS: u64 = 60_000;
 #[derive(Debug)]
 pub struct ToolError {
     /// `bad_input`, `not_found`, `failed`, `unknown_tool`; from the desktop tools also `window_not_found`,
-    /// `focus_refused`, `element_gone`, `timed_out` and `not_supported`.
+    /// `focus_refused`, `element_gone`, `timed_out`, `not_supported` and `user_declined`.
     pub code: &'static str,
     pub message: String,
 }
@@ -438,6 +438,29 @@ pub const TOOLS: &[Tool] = &[
         run: crate::observe::sessions,
     },
     Tool {
+        name: "take_over",
+        description: "Ask the person using this machine to let the agent take over its mouse and keyboard. Clicks, \
+                      keys, typing, scrolling, bringing a window forward and switching desktops ask by themselves when \
+                      someone used the machine within the last minute: a pop-up there with OK and Cancel waits, with \
+                      no time limit, for their answer, and OK holds for the rest of the session while it keeps \
+                      working. Ask first with a `reason` they will understand; Cancel is answered `user_declined` and \
+                      recorded: tell them what you couldn't do. `release` hands the machine back (a pop-up \
+                      tells them they can use it again), as the end of the session or five quiet minutes do. `status` says how things \
+                      stand and lists the last answers. `active_within_s` sets how recent input counts as someone \
+                      using the machine (60 by default; 0 never asks).",
+        schema: || {
+            object(
+                json!({
+                    "action": {"type": "string", "enum": ["ask", "release", "status"], "description": "ask (the default): show the pop-up if someone is using the machine; release: hand it back; status: only say how things stand."},
+                    "reason": {"type": "string", "description": "What the agent needs the machine for, in words the person will understand; shown in the pop-up."},
+                    "active_within_s": {"type": "integer", "description": "Set on this machine: input within this many seconds counts as someone using it. 60 by default; 0 never asks."}
+                }),
+                &[],
+            )
+        },
+        run: crate::takeover::tool,
+    },
+    Tool {
         name: "batch",
         description: "Run several tools one after another in one call, to save round trips: find a field, set it, press \
                       a button, wait for what follows. Each step is `{tool, args}`. Where a step needs something an \
@@ -478,7 +501,7 @@ pub fn call(agent: &Agent, name: &str, args: &Value) -> Result<Value, ToolError>
     if let Some(unknown) = given.keys().find(|key| known["properties"].get(key.as_str()).is_none()) {
         return Err(ToolError::bad(format!("{name} has no argument named {unknown}")));
     }
-    (tool.run)(agent, args)
+    crate::takeover::around(agent, name, args, || (tool.run)(agent, args))
 }
 
 // ------------------------------------------------------------------------------------------------ batch
