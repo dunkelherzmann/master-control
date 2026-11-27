@@ -4,3 +4,4 @@ target/
 .build/
 dist/
 scripts/hosts.env
+mutants.out*/
