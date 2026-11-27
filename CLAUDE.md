@@ -128,8 +128,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 - **The GNOME test** drives the signed-in session, so it runs only when asked: on the Linux machine,
   `MC_GNOME_GUI_TESTS=1 cargo test -p mc-agent --test desktop_gnome` (the extension must be running, the screen
   unlocked).
-- **Restarting the worker service closes what its `exec` started** (same cgroup): start test windows that must
-  outlive a reinstall with `systemd-run --user --collect`.
+- **What `exec` starts on Linux runs in a scope of its own** (`systemd-run --user --scope`, with
+  `--expand-environment=no` or systemd rewrites every `$`), because systemd stops everything in a service's cgroup,
+  `setsid` included, whenever the worker service stops or restarts (each install, each log-out).
 - **X11:** a window must select ButtonPress to receive ButtonRelease (the release goes to whoever took the
   press).
 - **Fonts:** embed only a static file per weight (`fc-scan` says `variable=False`); Ubuntu's R/M/B files are one

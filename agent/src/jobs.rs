@@ -149,13 +149,15 @@ impl Jobs {
     }
 
     pub fn start(&self, spec: Spec) -> io::Result<Arc<Job>> {
-        let (mut command, shown) = if spec.argv.is_empty() {
+        let (command, shown) = if spec.argv.is_empty() {
             (platform::shell(&spec.command), spec.command.clone())
         } else {
             let mut command = Command::new(&spec.argv[0]);
             command.args(&spec.argv[1..]);
             (command, spec.argv.join(" "))
         };
+        // What a command starts (an app's window, a server) must outlive a restart of the agent.
+        let mut command = platform::outside_the_agents_service(command);
         let cwd = spec.cwd.unwrap_or_else(crate::state::working_folder);
         let id = self.next.fetch_add(1, Ordering::SeqCst);
         let folder = self.folder.join(id.to_string());
