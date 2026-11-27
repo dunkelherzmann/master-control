@@ -216,7 +216,7 @@ fn decisions(home: &Path, count: usize) -> Vec<Value> {
 
 /// Whether input may go ahead at all: where it can't (macOS without the Accessibility permission), the tool itself
 /// says why, and nobody is asked.
-fn input_allowed() -> bool {
+pub(crate) fn input_allowed() -> bool {
     #[cfg(target_os = "macos")]
     {
         crate::desktop::ready().1
@@ -262,11 +262,15 @@ thread_local! {
 /// Runs one tool call: the desktop it opens asks the person before the first real input (see [`Asking`]), and when
 /// the agent sent input itself, that is noted.
 pub(crate) fn around<T>(agent: &Agent, tool: &str, args: &Value, work: impl FnOnce() -> T) -> T {
-    let call = Call { home: agent.home.clone(), tool: tool.to_string(), cleared: false };
+    around_in(&agent.home, tool, args, work)
+}
+
+fn around_in<T>(home: &Path, tool: &str, args: &Value, work: impl FnOnce() -> T) -> T {
+    let call = Call { home: home.to_path_buf(), tool: tool.to_string(), cleared: false };
     let before = CALL.with(|current| current.replace(Some(call)));
     let result = work();
     CALL.with(|current| *current.borrow_mut() = before);
-    acted(agent, tool, args);
+    acted(home, tool, args);
     result
 }
 
@@ -286,7 +290,7 @@ fn before_input(desktop: &dyn Desktop) -> crate::desktop::Result<()> {
 fn gate(home: &Path, tool: &str, desktop: &dyn Desktop) -> Result<(), ToolError> {
     let _turn = TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut settings = Settings::load(home);
-    if settings.active_within_s == 0 || !input_allowed() {
+    if settings.active_within_s == 0 {
         return Ok(());
     }
     let name = session_name();
@@ -405,12 +409,12 @@ impl Desktop for Asking {
 }
 
 /// Called after every tool: notes when the agent itself sent input.
-fn acted(agent: &Agent, tool: &str, args: &Value) {
+fn acted(home: &Path, tool: &str, args: &Value) {
     if !sends_input(tool, args) {
         return;
     }
     let _turn = TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut settings = Settings::load(&agent.home);
+    let mut settings = Settings::load(home);
     let now = now_ms();
     settings.last_action_ms = Some(now);
     let name = session_name();
@@ -419,7 +423,7 @@ fn acted(agent: &Agent, tool: &str, args: &Value) {
         session.last_action_ms = Some(now);
         settings.set_session(&name, &session);
     }
-    settings.save(&agent.home);
+    settings.save(home);
 }
 
 /// Hands the machine back from one session; the person is told if they had been asked.
@@ -451,6 +455,10 @@ pub(crate) fn end_session(home: &Path, name: &str) {
 
 /// Hands the machine back from every session that was let in and has sent nothing for `quiet`.
 pub fn hand_back_quiet(home: &Path, quiet: Duration) {
+    hand_back_quiet_telling(home, quiet, tell_done);
+}
+
+fn hand_back_quiet_telling(home: &Path, quiet: Duration, tell: impl Fn()) {
     let _turn = TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut settings = Settings::load(home);
     let now = now_ms();
@@ -467,7 +475,7 @@ pub fn hand_back_quiet(home: &Path, quiet: Duration) {
         return;
     }
     for name in done {
-        hand_back(home, &mut settings, &name, tell_done);
+        hand_back(home, &mut settings, &name, &tell);
     }
     settings.save(home);
 }
@@ -615,6 +623,184 @@ mod tests {
     fn the_question_carries_the_reason() {
         assert!(question(Some("checking the download list"), "click").contains("for this: checking the download list"));
         assert!(question(None, "type_text").contains("to type"));
+    }
+
+    /// A desktop that records what it was asked and answers as told; nothing reaches a real screen.
+    struct Fake {
+        idle: Option<Duration>,
+        answer: bool,
+        asked: std::cell::RefCell<Vec<String>>,
+        sent: std::cell::Cell<u32>,
+    }
+
+    impl Fake {
+        fn new(idle_s: Option<u64>, answer: bool) -> Fake {
+            Fake { idle: idle_s.map(Duration::from_secs), answer, asked: Default::default(), sent: Default::default() }
+        }
+    }
+
+    impl Desktop for std::rc::Rc<Fake> {
+        fn bounds(&self) -> crate::desktop::Result<Rect> {
+            Ok(Rect { x: 0, y: 0, width: 100, height: 100 })
+        }
+        fn capture(&self, _: Rect) -> crate::desktop::Result<Image> {
+            unimplemented!()
+        }
+        fn windows(&self) -> crate::desktop::Result<Vec<WindowInfo>> {
+            Ok(Vec::new())
+        }
+        fn focus(&self, _: u64) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn pointer(&self) -> crate::desktop::Result<(i32, i32)> {
+            Ok((0, 0))
+        }
+        fn move_pointer(&self, _: i32, _: i32) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn button(&self, _: Button, _: bool) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn scroll(&self, _: i32, _: i32) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn key(&self, _: Key, _: bool) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn text(&self, _: &str) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn tree(&self, _: &WindowInfo, _: TreeLimits) -> crate::desktop::Result<(Element, bool)> {
+            unimplemented!()
+        }
+        fn act(&self, _: &WindowInfo, _: Target, _: &ElementAction) -> crate::desktop::Result<Acted> {
+            unimplemented!()
+        }
+        fn quiet_text(&self, _: &WindowInfo, _: &str) -> crate::desktop::Result<()> {
+            self.sent.set(self.sent.get() + 1);
+            Ok(())
+        }
+        fn idle(&self) -> Option<Duration> {
+            self.idle
+        }
+        fn ask(&self, message: &str) -> crate::desktop::Result<bool> {
+            self.asked.borrow_mut().push(message.to_string());
+            Ok(self.answer)
+        }
+        fn clipboard(&self) -> crate::desktop::Result<Option<String>> {
+            Ok(None)
+        }
+        fn set_clipboard(&self, _: &str) -> crate::desktop::Result<()> {
+            Ok(())
+        }
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let home = std::env::temp_dir().join(format!("mc-take-over-{name}-{}-{}", std::process::id(), now_ms()));
+        fs::create_dir_all(&home).unwrap();
+        home
+    }
+
+    /// One tool call on the fake, the way `tools::call` runs it, in its own session.
+    fn run(home: &Path, tool: &str, args: Value, desktop: &Asking, work: impl FnOnce(&Asking) -> crate::desktop::Result<()>) -> crate::desktop::Result<()> {
+        state::with_working_folder(home.join("work").join("one"), || around_in(home, tool, &args, || work(desktop)))
+    }
+
+    /// The fake and the asking desktop around it.
+    fn asking(idle_s: Option<u64>, answer: bool) -> (std::rc::Rc<Fake>, Asking) {
+        let fake = std::rc::Rc::new(Fake::new(idle_s, answer));
+        (fake.clone(), Asking(Box::new(fake)))
+    }
+
+    #[test]
+    fn someone_at_the_machine_is_asked_once_and_ok_lets_the_session_carry_on() {
+        let home = scratch("ok");
+        let (seen, desktop) = asking(Some(2), true);
+        let reason = "checking the window";
+        let mut kept = Settings::load(&home);
+        kept.set_session("one", &Session { reason: Some(reason.into()), ..Session::default() });
+        kept.save(&home);
+        run(&home, "drag", json!({}), &desktop, |desktop| {
+            desktop.button(Button::Left, true)?;
+            desktop.move_pointer(5, 5)?;
+            desktop.button(Button::Left, false)
+        })
+        .unwrap();
+        assert_eq!(seen.asked.borrow().len(), 1, "one question for the whole call");
+        assert!(seen.asked.borrow()[0].contains(reason));
+        assert_eq!(seen.sent.get(), 3);
+        // The next call carries on: the person said OK and the session is at work.
+        run(&home, "key", json!({}), &desktop, |desktop| desktop.key(Key::Char('a'), true)).unwrap();
+        assert_eq!(seen.asked.borrow().len(), 1);
+        let session = Settings::load(&home).session("one");
+        assert!(session.granted && session.asked && session.declined_ms.is_none(), "{session:?}");
+        assert_eq!(decisions(&home, 5).iter().map(|line| line["answer"].clone()).collect::<Vec<_>>(), [json!("ok")]);
+        // Handed back after a quiet spell, the person is told; a second sweep tells nobody.
+        let told = std::cell::Cell::new(0);
+        hand_back_quiet_telling(&home, Duration::ZERO, || told.set(told.get() + 1));
+        hand_back_quiet_telling(&home, Duration::ZERO, || told.set(told.get() + 1));
+        assert_eq!(told.get(), 1);
+        assert!(!Settings::load(&home).session("one").granted);
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn cancel_refuses_and_keeps_refusing_without_asking_again() {
+        let home = scratch("cancel");
+        let (seen, desktop) = asking(Some(2), false);
+        let refused = run(&home, "click", json!({}), &desktop, |desktop| desktop.button(Button::Left, true)).unwrap_err();
+        assert_eq!(refused.code, "user_declined");
+        assert_eq!(seen.sent.get(), 0, "nothing was sent");
+        let again = run(&home, "type_text", json!({}), &desktop, |desktop| desktop.text("x")).unwrap_err();
+        assert_eq!(again.code, "user_declined");
+        assert_eq!((seen.asked.borrow().len(), seen.sent.get()), (1, 0));
+        assert_eq!(decisions(&home, 5)[0]["answer"], "cancel");
+        assert!(seen.asked.borrow()[0].contains("to click"));
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn nobody_at_the_machine_and_quiet_actions_are_never_asked() {
+        let home = scratch("quiet");
+        let (away_seen, away) = asking(Some(600), false);
+        run(&home, "click", json!({}), &away, |desktop| desktop.button(Button::Left, true)).unwrap();
+        let (unknown_seen, unknown) = asking(None, false);
+        run(&home, "click", json!({}), &unknown, |desktop| desktop.button(Button::Left, true)).unwrap();
+        // Long after the agent's own input, a person typing a moment ago is someone; quiet input still asks nobody.
+        let mut kept = Settings::load(&home);
+        kept.last_action_ms = Some(now_ms() - 30_000);
+        kept.save(&home);
+        let (here_seen, here) = asking(Some(1), false);
+        let window = WindowInfo { id: 1, title: String::new(), app: String::new(), pid: 1, frame: Rect { x: 0, y: 0, width: 1, height: 1 }, focused: true, minimized: false };
+        run(&home, "type_text", json!({"background": true}), &here, |desktop| desktop.quiet_text(&window, "x")).unwrap();
+        assert!(here_seen.asked.borrow().is_empty() && away_seen.asked.borrow().is_empty() && unknown_seen.asked.borrow().is_empty());
+        // The quiet input is the agent's own: the person's last keystroke, just before it, doesn't count.
+        let session = Settings::load(&home);
+        assert!(session.last_action_ms.unwrap() > now_ms() - 5_000);
+        assert!(session.session("one").last_action_ms.is_some(), "the earlier clicks were the session's");
+        fs::remove_dir_all(&home).unwrap();
+    }
+
+    #[test]
+    fn ending_the_session_hands_the_machine_back() {
+        let home = scratch("end");
+        let mut kept = Settings::load(&home);
+        kept.set_session("one", &Session { granted: true, ..Session::default() });
+        kept.set_session("two", &Session { granted: true, last_action_ms: Some(now_ms()), ..Session::default() });
+        kept.save(&home);
+        end_session(&home, "one");
+        let after = Settings::load(&home);
+        assert!(!after.sessions.contains_key("one") && after.sessions.contains_key("two"));
+        // Only a session quiet for as long as asked is handed back.
+        hand_back_quiet_telling(&home, Duration::from_secs(600), || {});
+        assert!(Settings::load(&home).sessions.contains_key("two"));
+        fs::remove_dir_all(&home).unwrap();
     }
 
     #[test]
