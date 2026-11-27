@@ -8,7 +8,7 @@ use std::sync::{Once, OnceLock};
 use windows_sys::Win32::Foundation::{LRESULT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CallNextHookEx, EnumThreadWindows, GetMessageW, MessageBoxW, PostMessageW, WM_CLOSE, SetWindowsHookExW, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, LLMHF_INJECTED,
+    CallNextHookEx, EnumThreadWindows, GetClassNameW, GetMessageW, MessageBoxW, PostMessageW, WM_CLOSE, SetWindowsHookExW, IDOK, KBDLLHOOKSTRUCT, LLKHF_INJECTED, LLKHF_LOWER_IL_INJECTED, LLMHF_INJECTED,
     LLMHF_LOWER_IL_INJECTED, MB_DEFBUTTON2, MB_ICONINFORMATION, MB_OK, MB_OKCANCEL, MB_SETFOREGROUND, MB_TOPMOST, MSG, MSLLHOOKSTRUCT, WH_KEYBOARD_LL,
     WH_MOUSE_LL,
 };
@@ -530,6 +530,8 @@ impl Desktop for WindowsDesktop {
         ASKING.store(true, Ordering::Relaxed);
         let (text, caption) = (wide(message), wide("Master Control"));
         // Cancel is the default button, so a person still typing can't answer OK by accident with Enter.
+        // SAFETY: a plain call.
+        bring_up_box_of(unsafe { GetCurrentThreadId() });
         // SAFETY: both strings end in a nul and outlive the call.
         let answer = unsafe {
             MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), MB_OKCANCEL | MB_ICONINFORMATION | MB_DEFBUTTON2 | MB_TOPMOST | MB_SETFOREGROUND)
@@ -552,7 +554,9 @@ impl Desktop for WindowsDesktop {
         close_told();
         std::thread::spawn(move || {
             // SAFETY: plain calls; both strings end in a nul and are owned by this thread for the whole call.
-            TOLD_THREAD.store(unsafe { GetCurrentThreadId() }, Ordering::Relaxed);
+            let thread = unsafe { GetCurrentThreadId() };
+            TOLD_THREAD.store(thread, Ordering::Relaxed);
+            bring_up_box_of(thread);
             unsafe { MessageBoxW(null_mut(), text.as_ptr(), caption.as_ptr(), MB_OK | MB_ICONINFORMATION | MB_TOPMOST | MB_SETFOREGROUND) };
         });
     }
@@ -647,6 +651,38 @@ unsafe extern "system" fn close_window(window: HWND, _: LPARAM) -> windows_sys::
     // SAFETY: a plain call on a window the system just listed.
     unsafe { PostMessageW(window, WM_CLOSE, 0, 0) };
     1
+}
+
+/// The message box among a thread's windows (class `#32770`; the thread may also own hidden helper windows).
+unsafe extern "system" fn first_window(window: HWND, found: LPARAM) -> windows_sys::core::BOOL {
+    let mut class = [0u16; 16];
+    // SAFETY: the buffer's length is passed; `found` is the address of the caller's handle, live for the listing.
+    unsafe {
+        let length = GetClassNameW(window, class.as_mut_ptr(), class.len() as i32);
+        if String::from_utf16_lossy(&class[..length.max(0) as usize]) != "#32770" || IsWindowVisible(window) == 0 {
+            return 1;
+        }
+        *(found as *mut HWND) = window;
+    }
+    0
+}
+
+/// Brings the pop-up a thread is about to show to the front once it is there: the topmost flag alone leaves it behind
+/// a full-screen app (a browser playing a video), and Windows keeps the foreground from a program the person isn't
+/// using. The way `focus` does it gets it there.
+fn bring_up_box_of(thread: u32) {
+    std::thread::spawn(move || {
+        for _ in 0..60 {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            let mut found: HWND = null_mut();
+            // SAFETY: the procedure writes only to `found`, which outlives the listing.
+            unsafe { EnumThreadWindows(thread, Some(first_window), &mut found as *mut HWND as LPARAM) };
+            if !found.is_null() {
+                let _ = WindowsDesktop.focus(found as usize as u64);
+                return;
+            }
+        }
+    });
 }
 
 fn close_told() {

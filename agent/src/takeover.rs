@@ -494,7 +494,8 @@ pub(crate) fn tool(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     let home: PathBuf = agent.home.clone();
     let name = session_name();
     let answer = {
-        let _turn = TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // How things stand is read without waiting for a question another call has open.
+        let _turn = (action != "status" || within.is_some()).then(|| TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner()));
         let mut settings = Settings::load(&home);
         if let Some(within) = within {
             settings.active_within_s = within;
