@@ -9,7 +9,9 @@ import Meta from 'gi://Meta';
 import Shell from 'gi://Shell';
 import St from 'gi://St';
 
+import * as Dialog from 'resource:///org/gnome/shell/ui/dialog.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import * as ModalDialog from 'resource:///org/gnome/shell/ui/modalDialog.js';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
 Gio._promisify(Shell.Screenshot.prototype, 'screenshot_area');
@@ -17,7 +19,7 @@ Gio._promisify(Shell.Screenshot.prototype, 'screenshot_area');
 const NAME = 'io.github.dunkelherzmann.MasterControl';
 const PATH = '/io/github/dunkelherzmann/MasterControl';
 // Raised whenever a method changes, so the agent can tell an old copy still loaded in the shell.
-const API = 3;
+const API = 4;
 
 const INTERFACE = `
 <node>
@@ -46,6 +48,10 @@ const INTERFACE = `
     <method name="Text"><arg type="s" direction="in" name="text"/><arg type="s" direction="out" name="how"/></method>
     <method name="GetClipboard"><arg type="s" direction="out" name="text"/></method>
     <method name="SetClipboard"><arg type="s" direction="in" name="text"/></method>
+    <method name="IdleTime"><arg type="t" direction="out" name="ms"/></method>
+    <method name="Ask"><arg type="s" direction="in" name="text"/><arg type="u" direction="out" name="id"/></method>
+    <method name="Answer"><arg type="u" direction="in" name="id"/><arg type="s" direction="out" name="answer"/></method>
+    <method name="Tell"><arg type="s" direction="in" name="text"/></method>
   </interface>
 </node>`;
 
@@ -80,6 +86,11 @@ class Service {
         this._pointer = seat.create_virtual_device(Clutter.InputDeviceType.POINTER_DEVICE);
         this._keyboard = seat.create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._held = new Set();
+        // The pop-ups asked, by number: '' while open, then 'ok' or 'cancel'.
+        this._answers = new Map();
+        this._dialogs = new Set();
+        this._told = new Set();
+        this._asked = 0;
         this._exported = Gio.DBusExportedObject.wrapJSObject(INTERFACE, this);
         this._exported.export(Gio.DBus.session, PATH);
         this._owner = Gio.bus_own_name_on_connection(Gio.DBus.session, NAME, Gio.BusNameOwnerFlags.REPLACE, null, null);
@@ -89,6 +100,8 @@ class Service {
         // Nothing stays pressed once the helper is gone.
         for (const keyval of this._held)
             this._keyboard.notify_keyval(now(), keyval, Clutter.KeyState.RELEASED);
+        for (const dialog of this._dialogs)
+            dialog.close();
         Gio.bus_unown_name(this._owner);
         this._exported.unexport();
         this._pointer.run_dispose();
@@ -283,6 +296,85 @@ class Service {
     SetClipboard(text) {
         unlocked();
         St.Clipboard.get_default().set_text(St.ClipboardType.CLIPBOARD, text);
+    }
+
+    // How long since the last input, as the shell's idle monitor counts it.
+    IdleTime() {
+        const monitor = global.backend?.get_core_idle_monitor?.() ?? Meta.IdleMonitor?.get_core?.();
+        if (!monitor)
+            throw new Error('the shell has no idle monitor');
+        return monitor.get_idletime();
+    }
+
+    // Opens a pop-up with Cancel and OK over everything, and answers at once with its number; Answer tells when it
+    // has been answered. No button is the default, so a person still typing can't answer by accident; Escape is
+    // Cancel. A D-Bus call left waiting for a person could be cut off by the bus.
+    Ask(text) {
+        unlocked();
+        // A "done" pop-up still open would sit where this one opens, and a click meant for it would answer this.
+        for (const told of this._told)
+            told.close(global.get_current_time());
+        this._told.clear();
+        const id = ++this._asked;
+        const dialog = new ModalDialog.ModalDialog({styleClass: 'prompt-dialog', destroyOnClose: true});
+        dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title: 'Master Control', description: text}));
+        const finish = answer => {
+            this._answers.set(id, answer);
+            this._dialogs.delete(dialog);
+            dialog.close(global.get_current_time());
+        };
+        dialog.setButtons([
+            {label: 'Cancel', action: () => finish('cancel'), key: Clutter.KEY_Escape},
+            {label: 'OK', action: () => finish('ok')},
+        ]);
+        this._answers.set(id, '');
+        this._dialogs.add(dialog);
+        if (!dialog.open(global.get_current_time())) {
+            this._answers.delete(id);
+            this._dialogs.delete(dialog);
+            dialog.destroy();
+            throw new Error('the pop-up couldn\'t be shown (another one may hold the screen)');
+        }
+        return id;
+    }
+
+    // '' while the pop-up is open, then its answer (asked once more after that: 'gone').
+    Answer(id) {
+        const answer = this._answers.get(id);
+        if (answer === undefined)
+            return 'gone';
+        if (answer !== '')
+            this._answers.delete(id);
+        return answer;
+    }
+
+    // A pop-up with one OK button, answered at once: nobody waits for it to be clicked.
+    Tell(text) {
+        // Never over a question still waiting for its answer: it would hide it.
+        if ([...this._answers.values()].includes(''))
+            return;
+        for (const told of this._told)
+            told.close(global.get_current_time());
+        this._told.clear();
+        const dialog = new ModalDialog.ModalDialog({styleClass: 'prompt-dialog', destroyOnClose: true});
+        dialog.contentLayout.add_child(new Dialog.MessageDialogContent({title: 'Master Control', description: text}));
+        dialog.setButtons([{
+            label: 'OK',
+            action: () => {
+                this._dialogs.delete(dialog);
+                this._told.delete(dialog);
+                dialog.close(global.get_current_time());
+            },
+            key: Clutter.KEY_Escape,
+            default: true,
+        }]);
+        this._dialogs.add(dialog);
+        this._told.add(dialog);
+        if (!dialog.open(global.get_current_time())) {
+            this._dialogs.delete(dialog);
+            this._told.delete(dialog);
+            dialog.destroy();
+        }
     }
 }
 

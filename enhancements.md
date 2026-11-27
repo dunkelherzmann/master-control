@@ -255,3 +255,22 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     - [x] Linux on GNOME: list and switch tested in the signed-in session; create and remove built, not tested;
       X11 needs a window manager
   - [x] Faster window reading (UI Automation cache, one call a window) and a stronger bring-to-front on Windows
+
+- [ ] 2026-11-27: **Ask before taking over a computer someone is using** (macOS, Linux, Windows; asked 2026-11-27:
+  "whenever the coding/ai agent detects via master control that the user is currently using the computer … create
+  a pop up window letting the user know that you need to take over and give them an ok button … if the user clicks
+  cancel you record the decision, acknowledge the negative and explain why you can't do the relevant action/test").
+  Before the pointer, the keyboard or bringing a window forward, if the machine had real input in the last minute,
+  a native pop-up asks with OK and Cancel and no timer; OK lets the agent's session carry on, Cancel refuses those
+  actions (`user_declined`) and is recorded; a notification says when the machine is the user's again.
+  - [ ] Mac
+  - [ ] Linux (GNOME)
+  - [ ] Windows
+
+- [ ] 2026-11-27: **A pop-up says when the computer is the person's again** (macOS, Linux, Windows; asked 2026-11-27:
+  "Create a companion pop up letting the user know that they can start using the computer again"). When an agent
+  that was let in is done, a pop-up with one OK button tells the person they can use the computer again, in place of
+  a notification; the agent doesn't wait for it to be clicked.
+  - [ ] Mac
+  - [ ] Linux (GNOME)
+  - [ ] Windows

@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod observe;
 mod platform;
 mod state;
+mod takeover;
 mod tools;
 pub mod worker;
 
@@ -83,6 +84,8 @@ impl Agent {
         std::fs::create_dir_all(&home)?;
         state::restrict_to_user(&home)?;
         let token = state::load_or_create_token(&home)?;
+        // Windows tells real input from the agent's own only to a program watching as it happens.
+        desktop::watch_input();
         Ok(Arc::new(Agent {
             jobs: jobs::Jobs::new(home.join("jobs"))?,
             audit: audit::Audit::open(&home.join("audit.log"))?,
@@ -130,6 +133,7 @@ impl Agent {
         if let Some(entry) = self.working.lock().unwrap().get_mut(session) {
             entry.1 = true;
         }
+        takeover::end_session(&self.home, session);
         self.sweep();
     }
 
@@ -166,6 +170,12 @@ impl Agent {
         working.retain(|name, (used, ended)| !(*ended || used.elapsed() > idle) || root.join(name.as_str()).exists());
         drop(working);
         (removed, self.jobs.prune(keep))
+    }
+
+    /// Hands the machine back from sessions that were let in and have been quiet for a while (the person gets a
+    /// pop-up tells them they can use it again). Run every few seconds by whatever keeps the agent going.
+    pub fn hand_back_quiet(&self) {
+        takeover::hand_back_quiet(&self.home, takeover::DONE_AFTER);
     }
 
     pub fn token(&self) -> &str {
@@ -237,6 +247,7 @@ fn start_sweeping(agent: Arc<Agent>, stop: Arc<AtomicBool>) {
                 agent.sweep();
                 last = Some(Instant::now());
             }
+            agent.hand_back_quiet();
             std::thread::sleep(Duration::from_millis(500));
         }
     });

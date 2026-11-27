@@ -280,6 +280,11 @@ impl Master {
         }
     }
 
+    /// The master's own machine's agent.
+    pub fn own_agent(&self) -> std::sync::Arc<mc_agent::Agent> {
+        self.own.clone()
+    }
+
     /// The name the master's own machine goes by.
     pub fn own_name(&self) -> &str {
         &self.name

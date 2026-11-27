@@ -84,6 +84,7 @@ fn respond_tool_error(request: Request, error: &ToolError) {
         "bad_input" => 400,
         "not_found" | "unknown_tool" | "window_not_found" => 404,
         "focus_refused" | "element_gone" => 409,
+        "user_declined" => 403,
         "timed_out" => 408,
         "not_supported" => 501,
         _ => 500,

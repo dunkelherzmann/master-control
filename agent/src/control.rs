@@ -115,8 +115,9 @@ impl From<DesktopError> for ToolError {
     }
 }
 
+/// The desktop, asking the person using it before the first real input of the call (specs.md §3.4).
 fn open() -> Result<Box<dyn Desktop>, ToolError> {
-    Ok(desktop::open()?)
+    Ok(Box::new(crate::takeover::Asking(desktop::open()?)))
 }
 
 fn window_json(window: &WindowInfo) -> Value {

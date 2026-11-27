@@ -174,7 +174,7 @@ fn status_describes_the_machine() {
     assert_eq!(status["capabilities"]["exec"], true);
     assert_eq!(status["capabilities"]["screen"], status["capabilities"]["input"]);
     assert_eq!(status["capabilities"]["observe"], cfg!(any(windows, target_os = "macos", all(target_os = "linux", target_arch = "x86_64"))));
-    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]));
+    assert_eq!(status["tools"], json!(["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "take_over", "batch"]));
 }
 
 #[test]
@@ -483,7 +483,7 @@ fn mcp_over_http_lists_and_calls_the_tools() {
 
     let (_, listed) = test.mcp(json!({"jsonrpc": "2.0", "id": 3, "method": "tools/list"}));
     let tools = listed["result"]["tools"].as_array().unwrap();
-    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "batch"]);
+    assert_eq!(tools.iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), ["status", "exec", "job", "jobs", "kill", "push", "pull", "screenshot", "windows", "focus", "arrange", "apps", "launch", "desktops", "click", "double_click", "right_click", "move", "drag", "scroll", "type_text", "key", "clipboard_get", "clipboard_set", "tree", "find", "wait_for", "press", "set_value", "toggle", "expand", "select", "observe_start", "observe_stop", "events", "summary", "logs", "sessions", "take_over", "batch"]);
     for tool in tools {
         assert_eq!(tool["inputSchema"]["type"], "object", "{tool}");
         assert!(tool["description"].as_str().unwrap().len() > 20);
@@ -994,4 +994,25 @@ fn a_batch_runs_its_steps_in_order_and_hands_answers_on() {
     let log = std::fs::read_to_string(test.home.join("audit.log")).unwrap();
     assert!(log.lines().any(|line| line.contains("\"via\":\"batch\"") && line.contains("\"tool\":\"push\"")), "{log}");
     assert!(!log.contains("written by step one"), "{log}");
+}
+
+/// The take-over setting is kept on the machine and the session is let in without a question when asking is off; a
+/// status changes nothing. (No test shows the pop-up: it would ask whoever is at this machine.)
+#[test]
+fn take_over_is_set_and_reported_without_asking() {
+    let test = Test::new();
+    let first = test.tool("take_over", json!({"action": "status"}));
+    assert_eq!(first["active_within_s"], 60, "{first}");
+    assert_eq!((first["granted"].clone(), first["asked"].clone(), first["declined"].clone()), (json!(false), json!(false), json!(false)), "{first}");
+    let set = test.tool("take_over", json!({"action": "status", "active_within_s": 0}));
+    assert_eq!(set["active_within_s"], 0, "{set}");
+    let kept: Value = serde_json::from_str(&std::fs::read_to_string(test.home.join("take-over.json")).unwrap()).unwrap();
+    assert_eq!(kept["active_within_s"], 0, "{kept}");
+    let asked = test.tool("take_over", json!({"reason": "checking a test window"}));
+    assert_eq!((asked["granted"].clone(), asked["asked"].clone(), asked["someone_active"].clone()), (json!(true), json!(false), json!(false)), "{asked}");
+    assert_eq!(asked["reason"], "checking a test window");
+    let released = test.tool("take_over", json!({"action": "release"}));
+    assert_eq!(released["granted"], false, "{released}");
+    assert_eq!(test.refused("take_over", json!({"action": "grab"})), (400, "bad_input".into()));
+    assert_eq!(test.refused("take_over", json!({"active_within_s": 100000})), (400, "bad_input".into()));
 }

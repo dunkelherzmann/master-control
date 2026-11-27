@@ -88,6 +88,7 @@ no `machine` argument.
 | Inside a window | `tree`, `find`, `wait_for` | Elements with role, name, value and place; wait for one to appear or go |
 | Element actions | `press`, `set_value`, `toggle`, `expand`, `select` | Act on an element itself: no pointer, no keyboard, the window need not be in front |
 | Observation | `observe_start`, `observe_stop`, `events`, `summary`, `logs`, `sessions` | Record what a program does, search it, get a verdict |
+| Asking first | `take_over` | Ask the person using a machine to let you take over its mouse and keyboard; hand it back |
 | Several at once | `batch` | Up to 30 steps in one call, a later step using an earlier one's answer |
 
 The MCP tool list has the full description and arguments of each.
@@ -136,6 +137,18 @@ the window.
 `background: true`: nothing comes to the front and the real pointer and keyboard are not used. Element actions
 never use them, on any system. A person may be working on that machine.
 
+**Ask before taking over a machine someone is using.** Clicks, keys, typing, scrolling, `focus` and switching
+desktops ask by themselves when a person used that machine's real mouse or keyboard in the last minute: a pop-up
+there with OK and Cancel waits, with no time limit, until they answer, so such a call can take a while. OK holds
+for the rest of your conversation while you keep working; after a quiet spell with the person back, they are asked
+again. Before a run of such steps, call `take_over` with a `reason` they will understand ("check that the download
+list updates"), so the pop-up says why. `background` actions and element actions never ask. If they click Cancel,
+those steps answer `user_declined` until you ask again: don't retry and don't hand the step to them; tell them
+plainly that you couldn't do it without the machine and which check that leaves undone, and ask again only if they
+say so. When you are done with a machine, `take_over` with `action: "release"` hands it back (a pop-up tells them
+they can use it again); the end of the conversation, or five quiet minutes, do too. `action: "status"` lists the last
+answers, and `active_within_s` changes what counts as recent (0 never asks).
+
 **Leave no files behind.** Each conversation has a working folder of its own on every machine (`working_folder`
 in `status`): `exec` runs there unless given `cwd`, and a relative path in `push` or `pull` is in it. It is removed
 when the conversation ends (or a day after its last use, if the end never arrives), and job output after a week.
@@ -163,6 +176,7 @@ first step that is refused unless `keep_going` is set. Check `ok` and each step'
 | `not_found`, `window_not_found`, `unknown_tool` | No such file, job, window or tool | Look again (`windows`, `jobs`) |
 | `element_gone` | The element is no longer what the tree showed | `find` again |
 | `focus_refused` | The window didn't take the keyboard | Something is in the way (a dialog, another app); look with `screenshot` |
+| `user_declined` | The person at that machine clicked Cancel when asked to let you take over | Stop, tell them what you couldn't do and why; ask again with `take_over` only if they agree |
 | `timed_out` | `wait_for` or a command ran out of time | Decide whether to wait longer |
 | `not_supported` | This machine or this element can't do that | Read the sentence; it usually names another way |
 | `failed` | It was tried and didn't work | Read the sentence |
