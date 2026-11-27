@@ -15,10 +15,12 @@ fn main() {
     println!("cargo:rerun-if-env-changed=MC_VERSION");
     let manifest = std::env::var("CARGO_MANIFEST_DIR").expect("cargo sets it");
     let root = Path::new(&manifest).parent().expect("the crate is in the project's folder");
-    // Only what exists: a path that isn't there would make cargo run this again on every build.
-    for watched in ["VERSION", ".git/HEAD", ".git/logs/HEAD"] {
-        if root.join(watched).exists() {
-            println!("cargo:rerun-if-changed={}", root.join(watched).display());
+    // Only what exists: a path that isn't there would make cargo run this again on every build. Git's own folder is
+    // asked of git: in a worktree `.git` is a file, and HEAD lives elsewhere.
+    let git_dir = git(root, &["rev-parse", "--absolute-git-dir"]).map(std::path::PathBuf::from).unwrap_or_else(|| root.join(".git"));
+    for watched in [root.join("VERSION"), git_dir.join("HEAD"), git_dir.join("logs").join("HEAD")] {
+        if watched.exists() {
+            println!("cargo:rerun-if-changed={}", watched.display());
         }
     }
     let given = std::env::var("MC_VERSION").ok().filter(|version| !version.trim().is_empty());
