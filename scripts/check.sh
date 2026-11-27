@@ -7,8 +7,14 @@
 #   scripts/check.sh mac linux  only those
 #   scripts/check.sh -w ...      send the working tree as it is, uncommitted changes included
 #
-# Without -w, Linux and Windows test the last commit. Prints one line per machine and exits
-# non-zero if any failed. Logs go to .build/check/<machine>.log.
+# Security, on the Mac only, before the machines and whenever the Mac is checked: `gitleaks detect` scans the whole
+# git history for secrets and fails on any finding (a false positive goes in .gitleaksignore, with a comment), and
+# `cargo audit` checks Cargo.lock against the RustSec advisories and fails on a vulnerability (warnings such as
+# unmaintained crates are only printed). Both are installed on the Mac from ~/.agents/config/tools.json
+# (`python3 ~/.agents/sync/agents.py tools --install`).
+#
+# Without -w, Linux and Windows test the last commit. Prints one line for security and one per machine and exits
+# non-zero if any failed. Logs go to .build/check/<machine>.log and security.log.
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PATH="$ROOT/scripts:$PATH"  # mc-exec: the copy in this repository, so nothing beyond mctl is needed
@@ -46,6 +52,15 @@ DIR="mc-check-$COMMIT"
 TAR="$LOGS/$DIR.tar"
 case " $MACHINES " in *" linux "* | *" windows "*) send >"$TAR" ;; esac
 
+# Security first, here on the Mac; its line is printed before the machines'. Ignored advisory, with why and until when:
+# - RUSTSEC-2026-0592: url 2.5.8 (through ureq), a stack overflow in Url::origin() on nested blob: URLs. Fixed in
+#   url 2.5.9, a dependency upgrade left to its own PR (bugs.md, 2026-11-27); drop the ignore once Cargo.lock has it.
+case " $MACHINES " in *" mac "*)
+    (PATH="$HOME/.local/bin:$PATH"; gitleaks detect --no-banner --no-color --redact 2>&1 \
+        && cargo audit --ignore RUSTSEC-2026-0592 2>&1
+     echo $? >"$LOGS/security.status") >"$LOGS/security.log" 2>&1 ;;
+esac
+
 for machine in $MACHINES; do
     case "$machine" in
     mac)
@@ -79,6 +94,16 @@ wait
 rm -f "$TAR"
 
 failed=0
+if [ -f "$LOGS/security.status" ]; then
+    code="$(cat "$LOGS/security.status")"
+    if [ "$code" = 0 ]; then
+        echo "security: passed (gitleaks, cargo audit) at $COMMIT"
+    else
+        failed=1
+        echo "security: FAILED (exit $code) at $COMMIT; see .build/check/security.log"
+        grep -E 'leaks found|^(RuleID|File|Commit|Crate|ID):|^error|not found' "$LOGS/security.log" | head -12
+    fi
+fi
 for machine in $MACHINES; do
     code="$(cat "$LOGS/$machine.status" 2>/dev/null || echo none)"
     passed="$(grep -E 'test result: ok' "$LOGS/$machine.log" | sed -E 's/.* ([0-9]+) passed.*/\1/' | paste -sd+ - | bc 2>/dev/null)"

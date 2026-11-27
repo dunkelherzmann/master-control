@@ -293,3 +293,10 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [ ] Mac
   - [ ] Linux
   - [ ] Windows
+
+- [x] 2026-11-27 (Mac): Security and dependency checks in scripts/check.sh: gitleaks on the history, cargo audit on the dependencies (PR #35)
+
+- [ ] 2026-11-27: Local crash reports: when the app crashes it saves a report (what happened, the version, the stack) in its own data folder on that machine, never sent anywhere, and shows it at the next start so the agent can read it.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
