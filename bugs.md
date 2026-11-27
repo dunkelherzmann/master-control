@@ -184,9 +184,13 @@ marked *found in testing*.
   from the Process Manager (`GetFrontProcess`). Checked with two copies of a test app with one bundle id: `focus`,
   `key` and `click` reached each copy, and the key landed in its field.
 
-- [ ] 2026-11-27: **Windows started through `exec` close when the Linux worker restarts after sign-in** (Linux;
+- [x] 2026-11-27: **Windows started through `exec` close when the Linux worker restarts after sign-in** (Linux;
   *found in testing*). After a GNOME log-out and automatic log-in, Master Control answered again after about 45 s,
   but windows started through `exec` right after: Files (nautilus, started with `setsid`) quit, and a GTK app's
   window closed while its process kept running. Likely the worker restarting once more after sign-in and taking its
   children with it (they share the service's cgroup). Programs started through `exec` should outlive a restart of
   the worker.
+  **Fixed in #30:** confirmed on the Linux machine: everything `exec` started, `setsid` or not, was in the worker
+  service's cgroup, which systemd stops whenever the service stops or restarts (each log-out, each install). Each
+  command now runs in a scope of its own (`systemd-run --user --scope`). Checked live: a text editor started through
+  `exec` kept running, with its window, across a restart of the worker; a missing program is still refused at once.
