@@ -24,7 +24,7 @@ pub fn shell(command_line: &str) -> Command {
 /// (`systemd-run --user --scope`, which keeps the process id), so systemd doesn't stop what it started when it stops
 /// or restarts the agent's service (it stops everything in a service's cgroup, `setsid` or not). Elsewhere, and where
 /// systemd can't do it, the command as it is.
-pub fn outside_the_agents_service(command: Command) -> Command {
+pub fn outside_the_agents_service(command: Command) -> std::io::Result<Command> {
     #[cfg(target_os = "linux")]
     {
         static SYSTEMD_RUN: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
@@ -39,10 +39,28 @@ pub fn outside_the_agents_service(command: Command) -> Command {
             String::from_utf8_lossy(&help.stdout).contains("--expand-environment").then_some(program)
         });
         if let Some(systemd_run) = systemd_run {
-            return in_a_scope(systemd_run, &command);
+            // A program that isn't there is refused here, as starting it directly would be, not by systemd-run later.
+            if !findable(&command) {
+                return Err(std::io::Error::new(std::io::ErrorKind::NotFound, format!("{} wasn't found", command.get_program().to_string_lossy())));
+            }
+            return Ok(in_a_scope(systemd_run, &command));
         }
     }
-    command
+    Ok(command)
+}
+
+/// Whether the command's program is there to run: a path to it, or a name found in the folders of its PATH.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn findable(command: &Command) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let runnable = |path: &std::path::Path| path.metadata().is_ok_and(|meta| meta.is_file() && meta.permissions().mode() & 0o111 != 0);
+    let program = std::path::Path::new(command.get_program());
+    if program.components().count() > 1 {
+        return runnable(&command.get_current_dir().map_or_else(|| program.to_path_buf(), |dir| dir.join(program)));
+    }
+    let path = command.get_envs().find(|(name, _)| *name == "PATH").and_then(|(_, value)| value.map(|value| value.to_os_string())).or_else(|| std::env::var_os("PATH")).unwrap_or_default();
+    std::env::split_paths(&path).any(|folder| runnable(&folder.join(program)))
 }
 
 /// Whether a process's `/proc/self/cgroup` puts it in a service of a user's systemd.
@@ -55,11 +73,20 @@ pub fn in_a_user_service(cgroup: &str) -> bool {
     })
 }
 
-/// The same command, run through `systemd-run` in a scope of its own.
+/// The same command (program, words, folder and environment), run through `systemd-run` in a scope of its own.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn in_a_scope(systemd_run: &std::path::Path, command: &Command) -> Command {
     let mut scoped = Command::new(systemd_run);
     scoped.args(["--user", "--scope", "--collect", "--quiet", "--expand-environment=no", "--"]).arg(command.get_program()).args(command.get_args());
+    if let Some(folder) = command.get_current_dir() {
+        scoped.current_dir(folder);
+    }
+    for (name, value) in command.get_envs() {
+        match value {
+            Some(value) => scoped.env(name, value),
+            None => scoped.env_remove(name),
+        };
+    }
     scoped
 }
 
@@ -205,14 +232,27 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_program_is_found_as_the_system_would() {
+        assert!(findable(&Command::new("sh")));
+        assert!(findable(&Command::new("/bin/sh")));
+        assert!(!findable(&Command::new("no-such-program-mc")));
+        let mut elsewhere = Command::new("sh");
+        elsewhere.env("PATH", "/nowhere");
+        assert!(!findable(&elsewhere));
+    }
+
     #[test]
     fn a_scoped_command_keeps_its_words() {
         let mut command = Command::new("sh");
-        command.args(["-c", "echo $HOME"]);
+        command.args(["-c", "echo $HOME"]).current_dir("/tmp").env("MC_X", "1");
         let scoped = in_a_scope(std::path::Path::new("/usr/bin/systemd-run"), &command);
         assert_eq!(scoped.get_program(), "/usr/bin/systemd-run");
         let words: Vec<_> = scoped.get_args().map(|word| word.to_string_lossy().into_owned()).collect();
         assert_eq!(words, ["--user", "--scope", "--collect", "--quiet", "--expand-environment=no", "--", "sh", "-c", "echo $HOME"]);
+        assert_eq!(scoped.get_current_dir(), Some(std::path::Path::new("/tmp")));
+        assert_eq!(scoped.get_envs().count(), 1);
     }
 
     /// Run where a user's systemd answers (the Linux machine): the command keeps its process id and its `$`, and runs
