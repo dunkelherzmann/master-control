@@ -12,7 +12,8 @@ actions `press`, `set_value`, `toggle`, `expand` and `select` (§3); and on
 Linux (x86-64) and Windows observation of a started command with `observe_start`, `observe_stop`, `events`,
 `summary`, `logs` and `sessions` (§4): process, file, network and memory events, crashes, allowed folders and
 guards; on Linux also system-call events, on Windows registry events. On macOS the same screen, input and
-window-content tools and observation are built too, with less detail in the events (§4.3).
+window-content tools and observation are built too, with less detail in the events (§4.3). On all three, the
+agent asks the person using a machine before taking over its mouse and keyboard (`take_over`, §3.4).
 Where a tool isn't built for a system yet it answers "not supported". Everything else is design.
 [pending.md](pending.md) has the build order and the open decisions; points that need a probe before they can be
 promised are marked **to prove**.
