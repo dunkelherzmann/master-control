@@ -637,16 +637,6 @@ impl Desktop for WindowsDesktop {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn a_desktop_id_reads_as_the_registry_names_its_key() {
-        // The current desktop's bytes on the test machine, and the key Explorer made for it.
-        let bytes = [0x78, 0x3a, 0x07, 0x98, 0xd1, 0x55, 0xa5, 0x46, 0x89, 0x30, 0x93, 0xa7, 0x3f, 0xcc, 0x0b, 0x3b];
-        assert_eq!(super::guid_text(&bytes), "{98073A78-55D1-46A5-8930-93A73FCC0B3B}");
-    }
-}
-
 /// A question is open (every pop-up of the machine comes from the one worker program).
 static ASKING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
@@ -716,4 +706,14 @@ pub fn watch_input() {
             while GetMessageW(&mut message, null_mut(), 0, 0) > 0 {}
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn a_desktop_id_reads_as_the_registry_names_its_key() {
+        // The current desktop's bytes on the test machine, and the key Explorer made for it.
+        let bytes = [0x78, 0x3a, 0x07, 0x98, 0xd1, 0x55, 0xa5, 0x46, 0x89, 0x30, 0x93, 0xa7, 0x3f, 0xcc, 0x0b, 0x3b];
+        assert_eq!(super::guid_text(&bytes), "{98073A78-55D1-46A5-8930-93A73FCC0B3B}");
+    }
 }
