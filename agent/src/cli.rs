@@ -45,6 +45,16 @@ pub fn run(arguments: Vec<String>) -> ExitCode {
             Err(error) => fail(&error.to_string()),
         };
     }
+    if command == "listen-run" {
+        let outcome = match arguments.next() {
+            Some(directory) => crate::listen::run(std::path::Path::new(&directory)),
+            None => Err(std::io::Error::other("listen-run needs the listening's folder")),
+        };
+        return match outcome {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => fail(&error.to_string()),
+        };
+    }
     let mut home = default_home();
     let mut port = DEFAULT_PORT;
     let mut worker: Option<crate::worker::WorkerConfig> = None;

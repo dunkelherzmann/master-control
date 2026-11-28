@@ -616,7 +616,7 @@ mod tests {
         assert!(needs_front("focus", &json!({"window": 3})));
         assert!(needs_front("desktops", &json!({"action": "switch", "number": 2})));
         assert!(!needs_front("desktops", &json!({})));
-        for quiet in ["press", "set_value", "toggle", "tree", "screenshot", "windows", "exec", "arrange"] {
+        for quiet in ["press", "set_value", "toggle", "tree", "screenshot", "windows", "exec", "arrange", "listen_start", "listen_stop"] {
             assert!(!needs_front(quiet, &json!({})), "{quiet}");
         }
         assert!(sends_input("type_text", &json!({"background": true})));

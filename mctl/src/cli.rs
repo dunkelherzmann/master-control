@@ -29,9 +29,9 @@ Workers are remembered in MC_MASTER_HOME, or ~/.master-control/master.";
 
 /// Runs the command line: `arguments` are the words after the program's name.
 pub fn run(arguments: Vec<String>) -> ExitCode {
-    // An observation session on the master's own machine is recorded by this same program, started again by the
-    // agent inside it.
-    if arguments.first().is_some_and(|word| word == "observe-run") {
+    // An observation session or a listening on the master's own machine is recorded by this same program, started
+    // again by the agent inside it.
+    if arguments.first().is_some_and(|word| word == "observe-run" || word == "listen-run") {
         return mc_agent::cli::run(arguments);
     }
     let words: Vec<&str> = arguments.iter().map(String::as_str).collect();
