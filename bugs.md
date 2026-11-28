@@ -212,7 +212,7 @@ marked *found in testing*.
   testing*, checking Herb's Terminal's accessibility). A Flatpak app reaches the accessibility bus through its
   sandbox's `xdg-dbus-proxy`, so the bus gave the proxy's process, not the window's, and `tree` answered
   `not_supported`. Apart from that, AccessKit (which egui uses) answers AT-SPI's `GetRole` with a number but not
-  `GetRoleName`, so every role was empty. **Fixed in #PR:** the app is matched by the sandbox instance in
+  `GetRoleName`, so every role was empty. **Fixed in #44:** the app is matched by the sandbox instance in
   `/proc/PID/root/.flatpak-info` (the app and its proxy share it), and role numbers are named from AT-SPI's own
   list (`scripts/gen-atspi-roles.sh`). Checked on the Linux machine with the Herb's Terminal Flatpak: its buttons
   and tabs listed with their roles, three runs out of three.
