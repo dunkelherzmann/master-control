@@ -393,8 +393,8 @@ fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
     for pid in [tracer, target] {
         std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
     }
-    std::thread::sleep(Duration::from_millis(500));
-    assert!(trace_sessions().contains(&name), "Windows keeps the session after its recorder is killed");
+    // Windows keeps the session now; nothing is asserted about that here, since any other test's recorder that
+    // starts in the meantime stops it too.
 
     let (_, verdict) = s.run(&["exit=0".into()], json!({}));
     assert_eq!(verdict["state"], "exited", "{verdict}");
