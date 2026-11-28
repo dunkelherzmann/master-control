@@ -926,9 +926,9 @@ pub fn run(directory: &Path) -> io::Result<()> {
     // SAFETY: the name is zero-ended and the block is laid out as StartTrace expects, with room for the name.
     let mut started = unsafe { StartTraceW(&mut session, name.as_ptr(), block.as_mut_ptr().cast()) };
     // Windows runs only a handful of sessions that carry the kernel's own events at once (error 1450 when they are
-    // taken): another session may be ending, so wait a little for a place.
+    // taken): another session may be ending, so wait for a place, long enough for a few short sessions to end.
     let waiting = Instant::now();
-    while started == 1450 && waiting.elapsed() < Duration::from_secs(8) {
+    while started == 1450 && waiting.elapsed() < Duration::from_secs(30) {
         std::thread::sleep(Duration::from_millis(250));
         block = properties(&name);
         started = unsafe { StartTraceW(&mut session, name.as_ptr(), block.as_mut_ptr().cast()) };

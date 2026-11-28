@@ -337,9 +337,16 @@ fn events_carry_the_call_stack_that_led_to_them() {
 
 
 /// The machine's trace sessions by name, as `logman` lists them.
+/// The listing fails now and then while sessions start and stop around it, so it is asked again.
 fn trace_sessions() -> Vec<String> {
-    let listed = std::process::Command::new("logman").args(["query", "-ets"]).output().unwrap();
-    String::from_utf8_lossy(&listed.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect()
+    for _ in 0..10 {
+        let listed = std::process::Command::new("logman").args(["query", "-ets"]).output().unwrap();
+        if listed.status.success() {
+            return String::from_utf8_lossy(&listed.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect();
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    panic!("logman couldn't list the trace sessions");
 }
 
 /// A running session's target and recorder, once its state says it runs.
@@ -399,7 +406,9 @@ fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
     let (_, verdict) = s.run(&["exit=0".into()], json!({}));
     assert_eq!(verdict["state"], "exited", "{verdict}");
     let listed = trace_sessions();
-    assert!(listed.contains(&live_name), "a session whose recorder runs is left alone: {live_name}");
+    let folder = s.test.home.join("sessions").join(live.to_string());
+    let said = |file: &str| std::fs::read_to_string(folder.join(file)).unwrap_or_default();
+    assert!(listed.contains(&live_name), "a session whose recorder runs is left alone: {live_name}\nstate: {}\ntracer.log: {}\nlisted: {listed:?}", said("state.json"), said("tracer.log"));
     assert!(!listed.contains(&name), "the next recorder stopped {name}");
     let verdict = s.test.tool("observe_stop", json!({"session": live}));
     assert_eq!(verdict["state"], "stopped", "{verdict}");
