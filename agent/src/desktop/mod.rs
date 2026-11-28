@@ -1,4 +1,4 @@
-//! Seeing and driving the desktop (specs.md §3): one small interface, done by each platform's own means.
+//! Seeing and driving the desktop (SPECIFICATION.md §3): one small interface, done by each platform's own means.
 
 pub mod keys;
 #[cfg(target_os = "macos")]

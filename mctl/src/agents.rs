@@ -1,4 +1,4 @@
-//! The AI agents on this machine, and their access to Master Control (specs.md §6).
+//! The AI agents on this machine, and their access to Master Control (SPECIFICATION.md §6).
 //!
 //! Every agent that speaks MCP keeps a list of the servers it starts, each in its own file and its own shape. Start
 //! adds Master Control to the list of every agent found here; Cleanup takes it out again. An agent counts as found

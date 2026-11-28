@@ -1,4 +1,4 @@
-//! The tools that see and drive the desktop, with the rules of specs.md §3.2: positions are those of the picture the
+//! The tools that see and drive the desktop, with the rules of SPECIFICATION.md §3.2: positions are those of the picture the
 //! client last received, keys go only to a window that really took the focus, and nothing is reported as done that
 //! wasn't.
 
@@ -115,7 +115,7 @@ impl From<DesktopError> for ToolError {
     }
 }
 
-/// The desktop, asking the person using it before the first real input of the call (specs.md §3.4).
+/// The desktop, asking the person using it before the first real input of the call (SPECIFICATION.md §3.4).
 fn open() -> Result<Box<dyn Desktop>, ToolError> {
     let desktop = desktop::open()?;
     // Where input can't go ahead at all (macOS without the Accessibility permission) the tool says why, and nobody

@@ -1,4 +1,4 @@
-//! The master's Start and Cleanup (specs.md §6). Start puts the program in its place and gives the AI agents found on
+//! The master's Start and Cleanup (SPECIFICATION.md §6). Start puts the program in its place and gives the AI agents found on
 //! this machine their access to it (`agents`); Cleanup takes all of that away again, the pairings included.
 
 use std::io;

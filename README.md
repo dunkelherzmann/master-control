@@ -8,7 +8,7 @@ reaches all of them, the master included, through one set of tools.
 
 ![The master's window, with two workers paired](design/screens/master.png)
 
-It is early (version 0.x) and I use it daily on my own machines. Expect rough edges; [pending.md](pending.md) lists
+It is early (version 0.x) and I use it daily on my own machines. Expect rough edges; [enhancements.md](enhancements.md) and [bugs.md](bugs.md) list
 what is missing and what hasn't been tried.
 
 ## What an agent can do with it
@@ -141,7 +141,7 @@ scripts/  version, checks on all three systems, install
 design/   icon and screens
 ```
 
-[specs.md](specs.md) is the full specification. [CLAUDE.md](CLAUDE.md) holds the notes for agents working on the
+[SPECIFICATION.md](SPECIFICATION.md) is the full specification. [CLAUDE.md](CLAUDE.md) holds the notes for agents working on the
 code, including the traps I fell into.
 
 ## Building and testing

@@ -336,3 +336,220 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     2026-11-28, #42: the master's Start checks it now, as the worker's did)
   - [x] Windows: nothing to add (the elevated worker starts programs elevated, so no UAC prompt appears); `status`
     says so (#42; installed 0.2.95 on all three, 2026-11-28: Linux pkcheck went from auth_admin to yes)
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Decision for Herbert: the name.** "Master Control" is tentative. From `pending.md`, open decisions.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Decision for Herbert: agentless back ends.** Should VM control through the hypervisor and physical machines through a KVM-over-IP device be in the first version, or come after the four agents work? From `pending.md`, open decisions.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac): **Probe: Endpoint Security events for a tool of our own.** Which events an unpaid-signed tool of ours could receive beyond what stock `eslogger` as root gives (that source is built, spec 4.3), and what System Integrity Protection blocks beyond `self_sandboxed`. From `pending.md`, to prove before promising.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Probe: whole-program memory tracing.** Whether whole-program read and write tracing is usable anywhere, or only watched ranges. Spec 4.2. From `pending.md`, to prove.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Probe: ETW system-call flag.** What the ETW system-call flag gives on Windows 11, and whether API hooking is needed for arguments. Spec 4.3. From `pending.md`, to prove.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux): **Probe: Wayland desktops other than GNOME.** KDE Plasma and wlroots compositors: screen capture and input without a prompt on every run (GNOME is built through our own shell extension). Spec 3.3. From `pending.md`, to prove.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Probe: which hypervisors first.** What each hypervisor exposes for display and input. Spec 2. From `pending.md`, to prove.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Probe: newer MCP protocol revision.** The agent and the master speak protocol versions 2024-11-05 to 2025-06-18 (Claude Code connects, checked 2026-11-11); the newer revision is still to read. Spec 5. From `pending.md`, to prove.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Control: close windows, install and stop apps, record the screen.** `close_window`, `install`, `stop`, `record_start`/`record_stop`. From `pending.md`, build order step 3.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux): **Linux control tests under a window manager, several monitors, HiDPI.** Focus through the window manager is only smoke-tested in GNOME, by listing windows. From `pending.md`, build order step 3.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Windows): **Windows control: higher-rights window in front, mixed-scaling monitors, windows GDI can't capture.** The refusal for a window with higher rights in front is written, not tested; several monitors with different scaling; pictures of windows GDI can't capture. From `pending.md`, build order step 3.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux, Windows): **Test `focus_refused`.** Neither platform has a test: nothing in the test set-up refuses focus. From `pending.md`, build order step 3.
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux): **Accessibility: try GTK 3, Qt, Electron and Chromium apps on Linux.** Linux is tested with one GTK 4 app (zenity) only. From `pending.md`, build order step 4.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **GTK 4 places of containers leave out padding.** GTK 4 reports places that leave out its containers' padding (about 30 pixels in libadwaita dialogs). A plain click by id no longer uses them (`bugs.md`, 2026-11-16); double and right clicks, drags and scrolling by id still do, and the places in `tree` and `find` are still GTK's. From `pending.md`, build order step 4.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Windows): **Accessibility: try WPF, WinUI, WebView2 and Electron apps on Windows.** Windows is tested with classic Win32 controls only. From `pending.md`, build order step 4.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux): **Faster large accessibility trees on Linux (AT-SPI) and macOS.** They still ask one property at a time; Windows reads a window in one cached call (#25). From `pending.md`, build order step 4.
+  - [ ] Mac
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: eBPF source.** A root-helper source for speed and for attaching to anything; decide the toolchain (aya or libbpf). From `pending.md`, build order step 5 and comparison candidate 6 (no slowing of the target).
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: attach to a running process by app name.** Attach by pid is built. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: measure how much the tracer slows a target.** Not measured yet. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: ARM64.** The tracer reads x86-64 registers and call numbers. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux, Windows): **Observation: `stream`, `snapshot`, `stack`, `dump`, `watch_memory`, `capture_content`.** Not built on Linux; on Windows `stream`, `snapshot` and the rest, as on Linux. From `pending.md`, build order steps 5 and 6.
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: baselines and limits.** Memory growth, descriptors, CPU, run time; hangs. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: DNS names, packets, decrypted HTTPS.** DNS names for addresses; packets; decrypted HTTPS (network depth, build order step 8). Related: a program's decrypted traffic through a local proxy (comparison candidate 7). From `pending.md`.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Observation on Linux: settings, ipc, ui and log events.** Settings (dconf, config files as their own class), ipc, ui and log events; the system log. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Linux): **Delete a session and its files; read sessions from before an agent restart.** Sessions from before an agent restart can't be read by the tools. From `pending.md`, build order step 5.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Windows): **Observation on Windows: session end delay.** A session ends about two seconds after its target does, waiting for the trace buffers; events arrive up to a second late. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Observation on Windows: count events lost to trace buffer overflow.** Not counted yet. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Observation on Windows: name a registry key opened before the session started.** A key opened before the session (an inherited handle) is named only from that key down. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Observation on Windows: still behind Linux.** Opens don't say read or write (Windows doesn't report it); no memory protection changes or file mappings; no system calls (not available by name from ETW as read; to prove another way); no thread or image events. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Observation on Windows: where a crash happened, hangs, error dialogs.** A dump from Windows Error Reporting for the place of a crash. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **A turn-taking lock for the shared Windows desktop.** The machine's desktop is shared with other projects' GUI tests: one run in four failed when something else moved the pointer mid-drag (the agent reported it, as it should). Give the tests a turn-taking lock across projects, or their own virtual desktop. From `pending.md`, build order step 6.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac): **macOS: check the window's colours on the screen itself.** They look a little lighter in the window's pictures than on Linux and Windows. From `pending.md`, build order step 7.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **The worker's Pair by a typed address in the window.** The command does it (`mc-agent pair CODE ADDRESS`) for a master not found on the network; the window's Pair screen has no field for it yet. From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **A console window flashes when the app opens on Windows.** From `pending.md`, build order step 7.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **An automated test that clicks the real window.** The buttons are tested through the screens' own code and tried by hand through the workers. From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Cleanup can't remove the program that is running it, on Windows.** From `pending.md`, build order step 7.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac): **Install the worker on macOS with a proper helper.** LaunchAgent and privileged helper; the install has no automated test beyond the service and task text (proven by installing on two machines). From `pending.md`, build order step 7.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **`mctl test` and sending a project's source to a worker.** So `scripts/check.sh` and the other projects' test scripts can leave the old skill's `mctl`, which keeps that name on PATH until then. From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **An update step for installed masters and workers.** They are copies; rebuilding the project doesn't replace them (`scripts/place.sh` does it by hand). From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Big files in pieces, mDNS announcements, firewall question for `mctl scan`.** A call's body is held in memory; announcements by mDNS as well as broadcast; `mctl scan` on the Mac may raise the macOS firewall's own question. From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Windows): **Try a worker on Windows or macOS over the real network, and two masters on one network.** Not yet tried. From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Try the agents' guide on an agent other than Claude Code.** `AGENT-GUIDE.md` is built; only Claude Code and Codex files were seen on a real machine (the other agents' places come from their documentation; Antigravity's has moved between versions). From `pending.md`, build order step 7.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Network depth: packets and decrypted HTTPS scoped to the target.** From `pending.md`, build order step 8.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Memory depth: snapshots, dumps, watched ranges.** From `pending.md`, build order step 9.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac): **macOS agent: what is not tried or built yet.** Control: drag, double click, modifier chords, the clipboard, raising one window among an app's several, a Retina display, several displays; element actions (`set_value`, `toggle`, `expand`, `select`) outside the gated test, SwiftUI apps; a Mac worker reached over the network (needs the macOS firewall's question answered). From `pending.md`, build order step 10.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac): **macOS observation: gaps and costs.** Live log can lose reports in heavy bursts without saying so (the stored `log show` is more complete but up to a minute behind: a second pass could fill gaps); a target that sandboxes itself can't start inside the reporting sandbox; no addresses, byte counts, failed calls, system calls or crash location; with admin rights network still comes from sandbox reports (ports only), a lone report from a process often never arrives, `eslogger` reports the whole machine (cost under a heavy build not measured), sessions start about half a second slower, Apple doesn't promise its format. Reading `sudo eslogger exec` into sessions is not built. From `pending.md`, build order step 10.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Agentless back ends.** VMs through the hypervisor, physical machines through a KVM-over-IP device (Spec 2; see the decision entry above). From `pending.md`, build order step 12.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Windows): **Reference study: why Process Monitor's test trace held no network events.** And the XML export with stacks. From `pending.md`.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac): **Reference study: Instruments.** The full list of instruments, what each records, and what `xctrace` may attach to. Needs Xcode on the Mac (only the Command Line Tools are installed). From `pending.md`.
+  - [ ] Mac
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Suggestion, awaiting his yes: make chosen calls fail on purpose during a test.** A full disk, a refused connection, a denied permission, as strace does, to check how the app copes. From `pending.md`.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Suggestion, awaiting his yes: pause the target at a chosen call.** Let the agent change its arguments or result, as API Monitor does. From `pending.md`.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Linux): **Suggestion, awaiting his yes: faster Linux screenshots.** GNOME Shell spends about 0.57 s of each one writing a PNG for our extension (measured 2026-11-20). Handing over raw pixels would need a changed extension, which loads at sign-in. From `pending.md`.
+  - [ ] Linux
+
+- [ ] 2026-11-28 (Windows): **Windows file properties and About entries.** The version in the Windows program's file properties; an About entry in a window menu on Linux and Windows (there it is the "About" link in the header); a licence line in the About screen (the `LICENSE` file is there since 0.2). From `pending.md`, versioning and About.
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Comparison candidates still open.** Menus of the menu bar aren't in a window's tree; macOS expand untried and only AppKit tried; GTK 4.14 check boxes can't be ticked by element action; the tree doesn't say whether a box is ticked; background input on macOS is limited (see `enhancements.md`, input without the pointer; Windows and Linux don't have it); a published table of which action works on which system and toolkit, proven by small fixture apps (Cua Driver); a zoom action for dense screens, file contents a program wrote (Tracee), per-app permission levels as an optional guard; per-event stacks on macOS (its sources have none) and what stacks cost per event; closing windows, several displays and notifications. From `pending.md`, candidates from the comparison.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Follow-by-name and filter costs.** Attach by name instead of pid isn't offered; filters drop events after decoding, so they save storage and reading, not tracing cost; a followed program's output isn't captured; a followed program on macOS has no network; on Linux a program under a debugger can't be followed; Windows runs only a few kernel trace sessions at once (a ninth waits 8 s, then is refused). From `pending.md`, candidate 4.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **A call stack with each event: remaining gaps.** Windows: network and memory events have no stack, a crash has no backtrace, no PDB shows offsets, stacks sent in two halves are not joined. macOS: crash backtrace is Apple silicon only, not for a program followed by `pid`, some system-library frames have no name, a program that changes user loses the handler; no report for a program that crashed repeatedly. From `pending.md`, candidate 5.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
+
+- [x] 2026-11-28 (Mac, Linux, Windows): **One set of trackers for every platform.** His request: SPECIFICATION.md as the spec, no pending.md; open port items moved into the trackers. In #PR.
+  - [x] Mac
+  - [x] Linux
+  - [x] Windows

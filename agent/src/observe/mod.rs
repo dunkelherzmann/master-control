@@ -1,4 +1,4 @@
-//! Observation (specs.md §4): a session follows a target and everything it starts, and keeps what they do in an event
+//! Observation (SPECIFICATION.md §4): a session follows a target and everything it starts, and keeps what they do in an event
 //! store the tools search.
 
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]

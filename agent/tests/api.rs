@@ -22,7 +22,7 @@ impl Test {
     fn new() -> Test {
         let home = std::env::temp_dir().join(format!("mc-agent-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::SeqCst)));
         let _ = std::fs::remove_dir_all(&home);
-        // A test's input is never a take-over to ask the person at the machine about (specs.md §3.4).
+        // A test's input is never a take-over to ask the person at the machine about (SPECIFICATION.md §3.4).
         std::fs::create_dir_all(&home).unwrap();
         std::fs::write(home.join("take-over.json"), r#"{"active_within_s":0}"#).unwrap();
         Test::in_home(home)
