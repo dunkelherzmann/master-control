@@ -208,6 +208,48 @@ fn read_format(directory: &Path) -> Option<(u32, u16)> {
     Some((u32::try_from(format["rate"].as_u64()?).ok()?, u16::try_from(format["channels"].as_u64()?).ok()?))
 }
 
+/// Sound that arrives in pieces stamped with their time (macOS, Windows), laid end to end: silence fills the gaps,
+/// and what overlaps sound already placed is dropped.
+pub(crate) struct Placer {
+    channels: usize,
+    /// Frames placed so far, sound and silence.
+    placed: u64,
+    /// Samples placed but not yet written.
+    waiting: Vec<f32>,
+}
+
+#[cfg_attr(target_os = "linux", allow(dead_code))]
+impl Placer {
+    pub(crate) fn new(channels: u16) -> Placer {
+        Placer { channels: usize::from(channels.max(1)), placed: 0, waiting: Vec::new() }
+    }
+
+    /// Puts interleaved `frames` at the frame their time says.
+    pub(crate) fn place(&mut self, at_frame: i64, frames: &[f32]) {
+        let at = at_frame.max(0) as u64;
+        self.pad_to(at);
+        let skip = (self.placed - at) as usize * self.channels;
+        if skip < frames.len() {
+            let whole = frames.len() - (frames.len() - skip) % self.channels;
+            self.waiting.extend_from_slice(&frames[skip..whole]);
+            self.placed += ((whole - skip) / self.channels) as u64;
+        }
+    }
+
+    /// Silence up to `frame`, when nothing came for that long.
+    pub(crate) fn pad_to(&mut self, frame: u64) {
+        if frame > self.placed {
+            self.waiting.resize(self.waiting.len() + (frame - self.placed) as usize * self.channels, 0.0);
+            self.placed = frame;
+        }
+    }
+
+    /// The samples placed since the last time.
+    pub(crate) fn take(&mut self) -> Vec<f32> {
+        std::mem::take(&mut self.waiting)
+    }
+}
+
 /// What a system's capture is handed: where to put the sound, and when to stop.
 pub(crate) struct Sink<'a> {
     started: &'a mut dyn FnMut(u32, u16) -> io::Result<()>,
@@ -283,4 +325,33 @@ use windows::capture;
 #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn capture(_sink: &mut Sink) -> io::Result<()> {
     Err(io::Error::other("listening isn't built for this system"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Placer;
+
+    #[test]
+    fn sound_is_placed_by_its_time_after_silence_and_overlaps_are_dropped() {
+        let mut placer = Placer::new(2);
+        placer.place(2, &[0.5, 0.5, 0.25, 0.25]);
+        assert_eq!(placer.take(), vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.25, 0.25]);
+        assert_eq!(placer.placed, 4);
+        // Starts one frame back: that frame is already placed.
+        placer.place(3, &[0.1, 0.1, 0.2, 0.2]);
+        assert_eq!(placer.take(), vec![0.2, 0.2]);
+        assert_eq!(placer.placed, 5);
+        placer.pad_to(4);
+        assert_eq!(placer.placed, 5);
+        placer.pad_to(6);
+        assert_eq!((placer.placed, placer.take()), (6, vec![0.0, 0.0]));
+        // Wholly before what is placed, or a time before the start: nothing.
+        placer.place(-1, &[0.9, 0.9]);
+        placer.place(1, &[0.9, 0.9]);
+        assert_eq!((placer.placed, placer.take()), (6, vec![]));
+        // A frame cut short at the end is left out.
+        placer.place(6, &[0.3, 0.3, 0.4]);
+        assert_eq!((placer.placed, placer.take()), (7, vec![0.3, 0.3]));
+        assert_eq!(Placer::new(0).channels, 1);
+    }
 }

@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use objc::declare::ClassDecl;
 use objc::runtime::{Class, Object, Protocol, Sel, BOOL, YES};
 
-use super::Sink;
+use super::{Placer, Sink};
 
 type Id = *mut Object;
 
@@ -179,39 +179,11 @@ fn host_now() -> f64 {
 struct Shared {
     /// The host time the recording starts at.
     origin_s: f64,
-    /// Frames placed so far, sound and silence.
-    placed: u64,
-    /// Samples waiting to be written.
-    waiting: Vec<f32>,
+    placer: Placer,
     error: Option<String>,
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
-
-impl Shared {
-    /// Puts `frames` (interleaved) at the frame where their time says, after silence for any gap; what overlaps
-    /// sound already placed is dropped.
-    fn place(&mut self, at_frame: i64, frames: &[f32]) {
-        let channels = usize::from(CHANNELS);
-        let at = at_frame.max(0) as u64;
-        if at > self.placed {
-            self.waiting.extend(std::iter::repeat_n(0.0, (at - self.placed) as usize * channels));
-            self.placed = at;
-        }
-        let skip = (self.placed - at.min(self.placed)) as usize * channels;
-        if skip < frames.len() {
-            self.waiting.extend_from_slice(&frames[skip..]);
-            self.placed += ((frames.len() - skip) / channels) as u64;
-        }
-    }
-
-    fn pad_to(&mut self, frame: u64) {
-        if frame > self.placed {
-            self.waiting.extend(std::iter::repeat_n(0.0, (frame - self.placed) as usize * usize::from(CHANNELS)));
-            self.placed = frame;
-        }
-    }
-}
 
 /// A sample buffer's sound, interleaved, as two channels.
 ///
@@ -281,7 +253,7 @@ extern "C" fn did_output(_this: &Object, _cmd: Sel, _stream: Id, buffer: *const 
     match samples {
         Ok(samples) => {
             let at = ((time - shared.origin_s) * f64::from(RATE)).round() as i64;
-            shared.place(at, &samples);
+            shared.placer.place(at, &samples);
         }
         Err(error) => shared.error = Some(error),
     }
@@ -363,7 +335,7 @@ pub(super) fn capture(sink: &mut Sink) -> io::Result<()> {
             }
         }
 
-        *SHARED.lock().unwrap() = Some(Shared { origin_s: host_now(), placed: 0, waiting: Vec::new(), error: None });
+        *SHARED.lock().unwrap() = Some(Shared { origin_s: host_now(), placer: Placer::new(CHANNELS), error: None });
         let started = global_block(started_handler as *const c_void);
         let _: () = msg_send![stream, startCaptureWithCompletionHandler: &started];
         match wait_for(Duration::from_secs(10), |answers| answers.started.take()) {
@@ -379,8 +351,8 @@ pub(super) fn capture(sink: &mut Sink) -> io::Result<()> {
                 let mut shared = SHARED.lock().unwrap();
                 let shared = shared.as_mut().expect("set above");
                 let quiet_until = ((host_now() - shared.origin_s - LATE_S).max(0.0) * f64::from(RATE)) as u64;
-                shared.pad_to(quiet_until);
-                (std::mem::take(&mut shared.waiting), shared.error.take())
+                shared.placer.pad_to(quiet_until);
+                (shared.placer.take(), shared.error.take())
             };
             if let Some(error) = error {
                 break Err(io::Error::other(error));
@@ -396,35 +368,11 @@ pub(super) fn capture(sink: &mut Sink) -> io::Result<()> {
         let _: () = msg_send![stream, stopCaptureWithCompletionHandler: &stopped];
         let _ = wait_for(Duration::from_secs(5), |answers| answers.stopped.then_some(()));
         // What came in up to the stop is kept.
-        let rest = SHARED.lock().unwrap().take().map(|shared| shared.waiting).unwrap_or_default();
+        let rest = SHARED.lock().unwrap().take().map(|mut shared| shared.placer.take()).unwrap_or_default();
         if outcome.is_ok() {
             sink.write(&rest)?;
         }
         let _: () = msg_send![pool, drain];
         outcome
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sound_is_placed_by_its_time_after_silence_and_overlaps_are_dropped() {
-        let mut shared = Shared { origin_s: 0.0, placed: 0, waiting: Vec::new(), error: None };
-        shared.place(2, &[0.5, 0.5, 0.25, 0.25]);
-        assert_eq!(shared.waiting, vec![0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.25, 0.25]);
-        assert_eq!(shared.placed, 4);
-        // Starts one frame back: that frame is already placed.
-        shared.place(3, &[0.1, 0.1, 0.2, 0.2]);
-        assert_eq!(&shared.waiting[8..], &[0.2, 0.2]);
-        assert_eq!(shared.placed, 5);
-        shared.pad_to(4);
-        assert_eq!(shared.placed, 5);
-        shared.pad_to(6);
-        assert_eq!(shared.placed, 6);
-        assert_eq!(shared.waiting.len(), 12);
-        shared.place(-1, &[0.9, 0.9]);
-        assert_eq!(shared.placed, 6);
     }
 }
