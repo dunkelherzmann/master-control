@@ -315,7 +315,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Linux: PipeWire's monitor of the default output
   - [x] Windows: WASAPI loopback
 
-- [ ] 2026-11-28 (Mac, Linux, Windows): **A password vault for sudo** (his request, to be evaluated by the Sage
+- [x] 2026-11-28 (Mac, Linux, Windows): **A password vault for sudo** (his request, to be evaluated by the Sage
   first): a vault where he enters the sudo password of each machine, master and workers, which Master Control uses
   without the coding agent ever knowing them. He adds that Master Control is meant to have passwordless sudo or admin
   rights so it needs no passwords at all: "Master" Control gives the coding agent unrestricted access to every host.
@@ -326,10 +326,10 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   he approves each use where it is stored. The gap that remains is the system's own password dialogs, which sudo
   doesn't cover: polkit on Linux (no rule in `/etc/polkit-1/rules.d`, so pkexec and GNOME Settings still ask) and
   macOS's authorization dialogs. Proposed instead, waiting for his yes:
-  - [ ] Linux: Start installs a polkit rule that lets this user do every admin action without asking, beside the
+  - [x] Linux: Start installs a polkit rule that lets this user do every admin action without asking, beside the
     sudo rule, and Cleanup removes it; `status` says whether both are in place (approved 2026-11-28, #42)
-  - [ ] macOS: Start checks the sudo rule and says how to add it when it's missing (it was put in by hand); the
+  - [x] macOS: Start checks the sudo rule and says how to add it when it's missing (it was put in by hand); the
     system's authorization dialogs stay the person's, since synthetic input can't type into them (approved
     2026-11-28, #42: the master's Start checks it now, as the worker's did)
-  - [ ] Windows: nothing to add (the elevated worker starts programs elevated, so no UAC prompt appears); `status`
-    says so (#42)
+  - [x] Windows: nothing to add (the elevated worker starts programs elevated, so no UAC prompt appears); `status`
+    says so (#42; installed 0.2.95 on all three, 2026-11-28: Linux pkcheck went from auth_admin to yes)
