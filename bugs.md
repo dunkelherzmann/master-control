@@ -202,8 +202,8 @@ marked *found in testing*.
   Page Up and Down, Forward Delete and the F keys; keypad on the arrows). Checked: Space 1 to 2 and back, 1 to 3 and
   back.
 
-- [ ] 2026-11-27: **`url` 2.5.8 has a known vulnerability, RUSTSEC-2026-0592** (macOS; *found in testing*, by the
+- [x] 2026-11-27: **`url` 2.5.8 has a known vulnerability, RUSTSEC-2026-0592** (macOS; *found in testing*, by the
   new `cargo audit` step of `scripts/check.sh`). A stack overflow in `Url::origin()` on nested `blob:` URLs; `url`
   comes in through `ureq` (mc-agent, mctl). Fixed in `url` 2.5.9: a dependency upgrade (`cargo update -p url`) left
   to its own PR. Until then `scripts/check.sh` ignores that one advisory, with a comment; drop the ignore with the
-  upgrade.
+  upgrade. Fixed 2026-11-28 (#PR): `url` 2.5.9, and `check.sh` no longer ignores it.
