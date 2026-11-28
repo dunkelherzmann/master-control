@@ -160,7 +160,6 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     named from its PDB (2026-11-11); crashes don't yet
   - [x] macOS: every crash of a program the session started carries its backtrace, caught as it happens
     (2026-11-11); per-event stacks aren't available from macOS's sources
-  - [ ] macOS
 - [x] 2026-11-11: **The app works with every agent, GUI or CLI** (all platforms): find out why the app can't
   install on this machine and can't detect the Claude Code app and the Codex app; make it compatible with the
   GUI apps and the CLIs of Claude, Codex and Antigravity, and any other agentic AI app or CLI. Start now finds
