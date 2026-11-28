@@ -13,9 +13,12 @@ mod roles;
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 /// Bits of the state set, as AT-SPI numbers them.
+const STATE_EDITABLE: u32 = 7;
 const STATE_FOCUSABLE: u32 = 11;
 const STATE_FOCUSED: u32 = 12;
+const STATE_MULTI_LINE: u32 = 17;
 const STATE_SENSITIVE: u32 = 24;
+const STATE_SHOWING: u32 = 25;
 /// Positions relative to the window, which every toolkit can give; desktop positions some can't.
 const RELATIVE_TO_WINDOW: u32 = 1;
 
@@ -319,17 +322,24 @@ const MOST_TABS: usize = 40;
 /// A plain click on an element of an app whose places can't be aimed at. What has a click action is pressed with it.
 /// A field is given the keyboard with Tab, since GTK 4 refuses assistive technology's GrabFocus, and its caret goes
 /// to the end, where a click past its text leaves it (GTK selects the whole text on Tab). With `press` false,
-/// anything that can take the keyboard is given it that way and nothing is pressed. None for every other app and
-/// element, and for one Tab doesn't reach: the pointer is used.
+/// anything that can take the keyboard is given it that way and nothing is pressed. Tab is never pressed while a
+/// text view has the keyboard (it would type a tab there). None for every other app and element, and for one Tab
+/// doesn't reach in one round of the window: the pointer is used.
 pub fn click_without_pointer(window: &WindowInfo, target: super::Target, press: bool, tab: impl Fn() -> Result<()>) -> Result<Option<String>> {
-    let bus = Bus::open()?;
-    let (at, _, _) = reach(&bus, window, target)?;
-    let application = (at.0.clone(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").map_err(failed)?);
+    // Whatever goes wrong before the app is known to be GTK 4 leaves the click to the pointer, as it was.
+    let Ok(bus) = Bus::open() else {
+        return Ok(None);
+    };
+    let Some(root) = bus.window(window) else {
+        return Ok(None);
+    };
+    let application = (root.0.clone(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").map_err(failed)?);
     let text_of = |name: &str| bus.property(&application, "org.a11y.atspi.Application", name).and_then(|value| String::try_from(value).ok()).unwrap_or_default();
     let (toolkit, version) = (text_of("ToolkitName"), text_of("Version"));
     if !places_leave_out_padding(&toolkit, &version) {
         return Ok(None);
     }
+    let (at, _, _) = reach(&bus, window, target)?;
     let why = format!("{toolkit} {version} gives element places without its containers' padding, so the pointer could miss");
     // "click" only: a GTK 4 text field's "activate" is Enter, which would submit its dialog.
     if press && bus.do_action(&at, &["click"]) {
@@ -342,9 +352,15 @@ pub fn click_without_pointer(window: &WindowInfo, target: super::Target, press: 
     if !bus.has(&at, &[STATE_FOCUSABLE]) || (press && !field) {
         return Ok(None);
     }
+    let start = keyboard_holder(&bus, &root);
     let mut tabs = 0;
     while !bus.has(&at, &[STATE_FOCUSED]) {
-        if tabs == MOST_TABS {
+        let holder = keyboard_holder(&bus, &root);
+        // Round the whole window without reaching it, or about to type a tab into a text view (Tab is a character
+        // there): the pointer has to do.
+        let round = tabs > 0 && holder.is_some() && holder == start;
+        let typed_into = holder.as_ref().is_some_and(|holder| bus.has(holder, &[STATE_MULTI_LINE]) && bus.has(holder, &[STATE_EDITABLE]));
+        if tabs == MOST_TABS || round || typed_into {
             return Ok(None);
         }
         tab()?;
@@ -366,6 +382,23 @@ pub fn click_without_pointer(window: &WindowInfo, target: super::Target, press: 
         1 => format!("gave it the keyboard with Tab: {why}"),
         _ => format!("gave it the keyboard with Tab, pressed {tabs} times: {why}"),
     }))
+}
+
+/// What in the window has the keyboard, looking only at what is shown.
+fn keyboard_holder(bus: &Bus, root: &Reference) -> Option<Reference> {
+    let mut waiting = vec![root.clone()];
+    let mut looked = 0;
+    while let Some(at) = waiting.pop() {
+        looked += 1;
+        if looked > 2000 {
+            return None;
+        }
+        if bus.has(&at, &[STATE_FOCUSED]) {
+            return Some(at);
+        }
+        waiting.extend(bus.children(&at).into_iter().filter(|child| bus.has(child, &[STATE_SHOWING])));
+    }
+    None
 }
 
 pub fn act(window: &WindowInfo, target: super::Target, action: &super::ElementAction) -> Result<super::Acted> {

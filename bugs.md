@@ -145,7 +145,8 @@ marked *found in testing*.
   container's border and padding is lost; the dialog's field was 33 pixels higher than drawn and its centre fell on
   the label. No AT-SPI call gives the true place, and GTK 4 refuses `GrabFocus`. So a plain click by id on a GTK 4
   element now presses it through its `click` action, or brings the keyboard to a field with Tab and puts the caret
-  at the end; `type_text` and `key` with an element do the same. Double and right clicks by id still use the
+  at the end (not while a text view has the keyboard: Tab is typed there, and the pointer is used instead);
+  `type_text` and `key` with an element do the same. Double and right clicks by id still use the
   reported place. A gated GNOME test on zenity 4 failed before the fix and passes after.
 
 - [x] 2026-11-16: **No screen or input on Linux after the upgrade to Ubuntu 26.10 (GNOME 51)** (Linux; *found in

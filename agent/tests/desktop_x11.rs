@@ -663,6 +663,35 @@ impl WaitWithin for std::process::Child {
     }
 }
 
+/// A click by id on a GTK 4 field brings the keyboard to it with Tab; Tab is a character in a text view, so none is
+/// pressed while one has the keyboard.
+#[test]
+fn a_click_by_id_never_types_a_tab_into_a_text_view() {
+    let _turn = desktop_turn();
+    private_display();
+    let test = Test::new();
+    let title = "mc test: notes";
+    let state_file = test.home.join("gtk-notes.json");
+    let mut app = Command::new("python3")
+        .args([concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/gtk_notes.py"), title, state_file.to_str().unwrap()])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("python3 with GTK 4 is needed for this test (sudo apt install python3-gi gir1.2-gtk-4.0)");
+    let state = || -> Value { serde_json::from_slice(&std::fs::read(&state_file).unwrap_or_default()).unwrap_or(Value::Null) };
+    test.tool("wait_for", json!({"window": title, "role": "text", "value": "field text", "timeout_s": 60}));
+    let notes = test.tool("find", json!({"window": title, "value": "notes"}))["elements"][0].clone();
+    assert_eq!(notes["focused"], true, "the text view starts with the keyboard: {notes}");
+    let field = test.tool("find", json!({"window": title, "role": "text", "value": "field text"}))["elements"][0].clone();
+    let clicked = test.tool("click", json!({"element": field["id"]}));
+    std::thread::sleep(Duration::from_millis(500));
+    let after = state();
+    drop(app.stdin.take());
+    let _ = app.wait();
+    assert_eq!(after["notes"], "notes", "the text view was typed into ({clicked})");
+}
+
 /// Acting on elements themselves, in a real GTK window: the pointer stays where it is and the keyboard goes nowhere.
 /// The window writes down what happens to its controls, so the test doesn't have to take the tree's word for it.
 #[test]
