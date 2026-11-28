@@ -456,12 +456,13 @@ pub fn system_setup() -> Vec<String> {
     {
         // The rule is put in by the person: macOS has no prompt a program can use for it.
         if admin_without_password() {
-            return vec!["admin rights: this user can use sudo without a password, so elevated commands work; the system's own password dialogs stay the person's".into()];
+            vec!["admin rights: this user can use sudo without a password, so elevated commands work; the system's own password dialogs stay the person's".into()]
+        } else {
+            let user = crate::platform::user();
+            vec![format!(
+                "admin rights are NOT set up: sudo asks this user for a password. To grant them: echo '{user} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/master-control && sudo chmod 440 /etc/sudoers.d/master-control"
+            )]
         }
-        let user = crate::platform::user();
-        return vec![format!(
-            "admin rights are NOT set up: sudo asks this user for a password. To grant them: echo '{user} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/master-control && sudo chmod 440 /etc/sudoers.d/master-control"
-        )];
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     Vec::new()
