@@ -21,8 +21,9 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 
 ## To prove before promising (one probe each)
 
-- [ ] macOS: which Endpoint Security events an unpaid-signed tool can receive; whether the stock `eslogger` as root
-  covers the need; what System Integrity Protection blocks. Spec §4.3
+- [ ] macOS: which Endpoint Security events an unpaid-signed tool of our own could receive beyond what the stock
+  `eslogger` as root gives (that source is built, spec §4.3); what System Integrity Protection blocks beyond
+  `self_sandboxed`
 - [ ] Memory: whether whole-program read and write tracing is usable anywhere, or only watched ranges. Spec §4.2
 - [ ] Windows: what the ETW system-call flag gives on Windows 11, and whether API hooking is needed for arguments.
   Spec §4.3
@@ -54,24 +55,27 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 4. [x] Accessibility tree, `find`, `wait_for` on Linux and Windows, and actions aimed at an element (2026-11-11;
    52 tests pass on Linux and Windows)
    - [ ] Linux is tested with one GTK 4 app (zenity); GTK 3, Qt, Electron and Chromium apps are not tried yet
-   - [ ] Linux: GTK 4 reports places that are a few pixels off for some widgets; centres still land inside them
+   - [ ] Linux: GTK 4 reports places that are a few pixels off for some widgets; centres still land inside them.
+     libadwaita dialogs are off by about 30 pixels, enough to miss (`bugs.md`, 2026-11-16)
    - [ ] Windows is tested with classic Win32 controls; WPF, WinUI, WebView2 and Electron apps are not tried yet
    - [x] Element actions beyond the pointer: `set_value`, `toggle`, `expand`, `select` and `press` without moving
      the pointer, tested on Linux and Windows
-   - [ ] Large trees: Windows reads a window in one cached UI Automation call (#25; Explorer 0.83 s to about
-     0.15 s); Linux (AT-SPI) and macOS still ask one property at a time
+   - [x] Large trees on Windows: a window is read in one cached UI Automation call (#25; Explorer 0.83 s to about
+     0.15 s)
+   - [ ] Large trees on Linux (AT-SPI) and macOS: they still ask one property at a time
 5. [x] Observation on Linux, first source (2026-11-11; 64 tests pass on Linux): a ptrace tracer for a started
    command, with process, file, network, memory and system-call events, the target's output, crashes, allowed
    folders, guards and the verdict. Chosen before eBPF because it needs no root and no kernel toolchain.
    - [ ] eBPF source (root helper), for speed and for attaching to anything; decide the toolchain (aya or libbpf)
-   - [ ] Attach to a running process, by pid or app name
+   - [x] Attach to a running process by pid (`a_running_program_is_followed_and_left_running`)
+   - [ ] Attach to a running process by app name
    - [ ] How much the tracer slows a target is not measured yet
    - [ ] ARM64 (the tracer reads x86-64 registers and call numbers)
    - [ ] `stream`, `snapshot`, `stack`, `dump`, `watch_memory`, `capture_content`
    - [ ] Baselines and limits (memory growth, descriptors, CPU, run time); hangs
    - [ ] DNS names for addresses; packets; decrypted HTTPS (step 8)
    - [ ] Settings (dconf, config files as their own class), ipc, ui and log events; the system log
-   - [ ] Full call stacks for events and crashes (today a crash gives one place)
+   - [x] Full call stacks for events and crashes (`stacks: true`; `events_and_crashes_carry_the_call_stack_that_led_to_them`)
    - [ ] Deleting a session and its files; sessions from before an agent restart can't be read by the tools
 6. [x] Observation on Windows (2026-11-11; 59 tests pass on Windows): an ETW tracer for a started command, with
    process, file, registry and network events, the target's output, crash exit codes, allowed folders, guards
@@ -85,15 +89,17 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
      each file operation and the bytes really read and written, made / replaced / opened for each open
    - [ ] Still behind Linux: opens don't say read or write (Windows doesn't report it); no memory protection
      changes or file mappings; no system calls (not available by name from ETW as read; to prove another way);
-     no thread or image events; no call stacks
+     no thread or image events
    - [ ] Where a crash happened (a dump from Windows Error Reporting); hangs; error dialogs
-   - [ ] Attach to a running process; `stream`, `snapshot` and the rest, as on Linux
+   - [x] Attach to a running process by pid (`a_running_program_is_followed_and_left_running`); call stacks with
+     events (`events_carry_the_call_stack_that_led_to_them`)
+   - [ ] `stream`, `snapshot` and the rest, as on Linux
    - [ ] The Windows machine's desktop is shared with other projects' GUI tests: one run in four failed when
      something else moved the pointer mid-drag (the agent reported it, as it should). Give the tests a turn-taking
      lock across projects, or their own virtual desktop
 7. [ ] The app's engine is in place (2026-11-11): Start, Pair and Cleanup for both roles as commands, with pairing
-   turned round so the master shows the code. Next: the shared window over them (one program per platform that
-   asks Master or Worker), the app's icon in it, and the static Linux build as the shipped one.
+   turned round so the master shows the code. The shared window over them, the app's icon and the static Linux
+   build followed (ticked below); what is still open is listed under it.
    - [x] Master's Start for every agent found (2026-11-11): Claude Code, the Claude app, Codex, Antigravity,
      Gemini CLI, Cursor, Windsurf and VS Code each get Master Control added to their own list of MCP servers.
      Tested against a stand-in home folder with each agent's file in its own shape. Open: only Claude Code and
@@ -111,11 +117,12 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
      for the code, real bold type, sharp at the display's zoom, no half-drawn frames on X11. Pictures in
      `design/screens/`
    - [x] The static Linux build of the app (2026-11-11): one 10 MB file with no shared libraries. Copies of the
-     app are in `/Applications` on the Mac and on the Linux and Windows desktops; a script that builds and
-     places all three is still to write
-   - [ ] On Windows the master's Pair listens on the network, so Windows Firewall asks about the program; the
-     master's Start should add a rule for it, as the worker's does
-   - [ ] The worker's Pair by a typed address, for a master not found on the network
+     app are in `/Applications` on the Mac and on the Linux and Windows desktops; `scripts/place.sh` builds and
+     places all three
+   - [x] On Windows the master's Pair listens on the network, so Windows Firewall asks about the program; the
+     master's Start adds a rule for it, as the worker's does (`firewall_commands` in `mctl/src/role.rs`)
+   - [ ] The worker's Pair by a typed address, for a master not found on the network: the command does it
+     (`mc-agent pair CODE ADDRESS`); the window's Pair screen has no field for it yet
    - [ ] A console window flashes when the app opens on Windows
    - [ ] The window's buttons are tested through the screens' own code and tried by hand through the workers;
      there is no automated test that clicks the real window
@@ -142,9 +149,9 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
    - [ ] Big files in pieces (a call's body is held in memory); announcements
      by mDNS as well as broadcast; `mctl scan` on the Mac may raise the macOS firewall's own question
    - [ ] Not yet tried: a worker on Windows or macOS over the real network; two masters on one network
-   - [ ] Install gives the agent admin rights (asked 2026-11-11): a sudoers entry on Linux, a task that runs with
-     highest privileges on Windows, a privileged helper with Full Disk Access on macOS. Then `exec` takes
-     `elevated`, and tracing, packet capture and attaching to any process need no extra step
+   - [x] Install gives the agent admin rights (asked 2026-11-11): a sudoers entry and a polkit rule on Linux, a
+     task that runs with highest privileges on Windows, and on macOS a sudo rule in place of a privileged helper
+     (#42; `enhancements.md`, admin rights). `exec` takes `elevated`
 8. [ ] Network depth: packets and decrypted HTTPS scoped to the target
 9. [ ] Memory depth: snapshots, dumps, watched ranges
 10. [ ] macOS agent. Built (2026-11-11): the worker's start-up install and removal, so a Mac can be a worker for

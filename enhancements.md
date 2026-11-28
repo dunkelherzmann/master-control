@@ -2,18 +2,20 @@
 
 Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with version and PR).
 
-- [ ] 2026-11-11: **Master Control, the app** (Linux, Windows, macOS). An installable app that serves an
+- [x] 2026-11-11: **Master Control, the app** (Linux, Windows, macOS). An installable app that serves an
   API and MCP endpoint so Claude Code and other coding agents can control a virtual or physical machine, for coding,
   testing and QA of apps written with agentic coders.
-  - [ ] Linux
-  - [ ] Windows
-  - [ ] macOS
+  - [x] Linux: the static program, installed as the `master-control` service and paired as a worker
+  - [x] Windows: installed as the "Master Control" task with the highest rights, paired as a worker
+  - [x] macOS: the master, and a worker too (see "A Mac as a worker")
+  - A virtual machine is controlled by the agent installed inside it; control through the hypervisor with no
+    agent inside is a separate question (`pending.md`, agentless back ends)
 - [ ] 2026-11-11: **See and drive the machine** (all platforms). The agent sees the monitor and controls the keyboard
   and mouse as if a user sat in front of the computer. Spec §3.
   - [ ] Linux: screen, pointer, keyboard, clipboard and the accessibility tree on X11 built and tested
     (2026-11-11); GNOME on Wayland built and tested (2026-11-16); other Wayland desktops still to come
   - [ ] Windows: screen, pointer, keyboard, clipboard and the accessibility tree built and tested (2026-11-11);
-    window management, app launch and recording still to come
+    window management, app launch and virtual desktops built too (#25); recording still to come
   - [x] macOS: screen, pointer, keyboard, clipboard and the accessibility tree built and tested on the master's
     own machine (2026-11-11; in 0.2)
 - [ ] 2026-11-11: **Watch everything the target app does** (all platforms). Constantly monitor, check, scan and trace
@@ -21,14 +23,16 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   registry, and everything else it does in the foreground and background, so the agent can code and troubleshoot on
   the fly. Spec §4.
   - [ ] Linux: a started command's processes, files, network, memory, system calls and crashes are recorded and
-    searchable, with guards and a verdict (2026-11-11); attaching, eBPF, memory watching and packets still to come
+    searchable, with guards and a verdict (2026-11-11); attaching by pid and call stacks built since; attaching
+    by app name, eBPF, memory watching and packets still to come
   - [ ] Windows: a started command's processes, files, registry changes, network and crashes are recorded and
-    searchable, with guards and a verdict (2026-11-11); memory, system calls, stacks and attaching still to come
+    searchable, with guards and a verdict (2026-11-11); attaching by pid and call stacks built since; memory,
+    system calls and the place of a crash still to come
   - [ ] macOS: a started command's processes, files, network ports, services looked up and crashes are recorded and
     searchable, with guards and a verdict, without administrator rights (2026-11-11); addresses, byte counts,
-    system calls and attaching still to come. With admin rights (2026-11-11) processes and files come from the
-    system's own events, with arguments, renames and a count of lost events, and a program with its own sandbox
-    can be watched (`self_sandboxed`)
+    system calls still to come; attaching built since, with admin rights. With admin rights (2026-11-11)
+    processes and files come from the system's own events, with arguments, renames and a count of lost events,
+    and a program with its own sandbox can be watched (`self_sandboxed`)
 - [x] 2026-11-11: **Study similar apps** with craft-and-rea to get the spec information: apps that cover the
   functionality partly or in full. Spec §7; evidence in `.investigation/` (untracked).
 - [x] 2026-11-11: **Trackers on disk**: `bugs.md`, `enhancements.md`, `pending.md` and `specs.md` in the project
@@ -67,13 +71,13 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   workers; worker = full control of itself by its master.
   - [x] The same tools on the master's own machine, as `machine: "master"` (2026-11-11)
   - [x] Screen, input, the accessibility tree and observation on a macOS master (2026-11-11; in 0.2)
-- [ ] 2026-11-11: **An app for Master Control** (all platforms), with an original icon: the agentic-brain idea inside a
+- [x] 2026-11-11: **An app for Master Control** (all platforms), with an original icon: the agentic-brain idea inside a
   circle on a rounded square, in the colours of the macOS Apps icon. Several icon candidates first, before moving on.
   - [x] Icon chosen: candidate D, the ring of six colours (2026-11-11); it is `design/icon.svg`
-  - [ ] macOS
-  - [ ] Linux
-  - [ ] Windows
-- [ ] 2026-11-11: **The app: one self-contained program per platform that sets a machine up as Master or Worker** (all
+  - [x] macOS: the `.app`'s `AppIcon.icns` (`macos/scripts/build.sh`)
+  - [x] Linux: the window's `_NET_WM_ICON` (`app/src/window_x11.rs`)
+  - [x] Windows: the window's icon (`app/src/window_win.rs`)
+- [x] 2026-11-11: **The app: one self-contained program per platform that sets a machine up as Master or Worker** (all
   platforms). One `.app`, one `.exe`, a Flatpak for Linux. On first start it asks: run as Master or as Worker.
   - Master: asks for elevation (or runs through sudo); installs everything the AI agents need (skills, tools, MCP
     and so on) together with worker-level tools and access; then generates a pairing code. Back, Cancel and Done
@@ -82,10 +86,8 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     agent access and coordination; then asks for a pairing code. Back, Cancel and Done buttons.
   - Started again on a machine where it is installed, it offers to uninstall and delete every component, skill,
     tool, MCP entry and the rest.
-  - [ ] macOS
-  - [ ] Windows
-  - [ ] Linux
-- [ ] 2026-11-11: **Correction to the app** (all platforms; replaces the first-start wizard of the entry above). Master
+  - Replaced the same day by the correction below, which drops the first-start wizard.
+- [x] 2026-11-11: **Correction to the app** (all platforms; replaces the first-start wizard of the entry above). Master
   Control stays one self-contained program per platform. Running it asks for permissions or elevation, then offers:
   - Master: 1. Run (installs the skills, tools, MCP and the rest if they aren't installed). 2. Pair (generates a
     random pairing code). 3. Cleanup (removes everything Run installed).
@@ -97,9 +99,10 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
     (2026-11-11; tested on all three, installed on the Mac, Linux and Windows)
   - [x] The shared window, drawn by the program itself (his choice, 2026-11-11): built for Linux, Windows and
     macOS, with the icon (2026-11-11)
-  - [ ] macOS
-  - [ ] Windows
-  - [ ] Linux
+  - [x] macOS: `dist/Master Control.app` (`macos/scripts/build.sh`), in `/Applications`
+  - [x] Windows: one `.exe` that asks for elevation, on the desktop
+  - [x] Linux: one static musl program that needs nothing from the system, on the desktop; admin steps go
+    through pkexec or sudo
 - [x] 2026-11-11: **Make the Windows and Linux apps look finished** (Linux, Windows): they looked like unfinished work
   with no polish. Redrawn with the icon, cards, status pills, digit tiles, real bold type and sharp rendering at
   the display's zoom. Pictures in `design/screens/`.
