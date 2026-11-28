@@ -325,9 +325,9 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   doesn't cover: polkit on Linux (no rule in `/etc/polkit-1/rules.d`, so pkexec and GNOME Settings still ask) and
   macOS's authorization dialogs. Proposed instead, waiting for his yes:
   - [ ] Linux: Start installs a polkit rule that lets this user do every admin action without asking, beside the
-    sudo rule, and Cleanup removes it; `status` says whether both are in place (approved 2026-11-28, #PR)
+    sudo rule, and Cleanup removes it; `status` says whether both are in place (approved 2026-11-28, #42)
   - [ ] macOS: Start checks the sudo rule and says how to add it when it's missing (it was put in by hand); the
     system's authorization dialogs stay the person's, since synthetic input can't type into them (approved
-    2026-11-28, #PR: the master's Start checks it now, as the worker's did)
+    2026-11-28, #42: the master's Start checks it now, as the worker's did)
   - [ ] Windows: nothing to add (the elevated worker starts programs elevated, so no UAC prompt appears); `status`
-    says so (#PR)
+    says so (#42)
