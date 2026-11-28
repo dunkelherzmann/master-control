@@ -177,7 +177,7 @@ marked *found in testing*.
   its own name on start, or name them so a new recorder can tell they are orphaned. **Fixed:** each recorder,
   before it starts its own session, lists the machine's trace sessions and stops every `MasterControl-…` one whose
   recorder (the process id at the end of its name) is no longer one of our programs
-  (`a_killed_recorders_trace_session_is_stopped_by_the_next_one`), and waits up to 30 s for a free place (#47).
+  (`a_killed_recorders_trace_session_is_stopped_by_the_next_one`), and waits up to 30 s for a free place (#47; installed as 0.2.116 on all three, 2026-11-28).
   Sessions in the old lowercase spelling (`master-control-*`) aren't ours to stop: no code here makes that name.
 
 - [ ] 2026-11-26: **Two Mac observation tests fail under a full parallel run** (macOS; *found in testing*).
