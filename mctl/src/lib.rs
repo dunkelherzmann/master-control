@@ -1,4 +1,4 @@
-//! The master's side (specs.md §2): the workers it knows, how it finds and pairs with them, and how it calls their
+//! The master's side (SPECIFICATION.md §2): the workers it knows, how it finds and pairs with them, and how it calls their
 //! tools. Everything said to a worker is sealed with the key the pairing gave the two of them.
 
 use std::collections::HashMap;

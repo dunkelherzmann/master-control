@@ -1,4 +1,4 @@
-//! The screens (specs.md §6): choose Master or Worker; then Start, Pair and Cleanup for that role. The same code
+//! The screens (SPECIFICATION.md §6): choose Master or Worker; then Start, Pair and Cleanup for that role. The same code
 //! draws them on every system. What a button does runs on a thread of its own, and its lines appear as they come.
 
 use std::sync::atomic::{AtomicBool, Ordering};

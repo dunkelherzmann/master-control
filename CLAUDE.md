@@ -1,7 +1,7 @@
 # Working in Master Control
 
 Herbert's rules are in the `herberts-preferences` skill; this file holds what is particular to this project.
-The spec is `specs.md`; `bugs.md`, `enhancements.md` and `pending.md` are at the root;
+The spec is `SPECIFICATION.md`; `bugs.md` and `enhancements.md` are the trackers, at the root (open decisions, probes and build steps are entries there);
 the reference study is in `.investigation/` (untracked). The repo is public on GitHub
 (`dunkelherzmann/master-control`, since 2026-11-12): nothing private goes into tracked files (no machine names,
 LAN addresses, local paths or pictures of real desktops; other names for the machines go in the

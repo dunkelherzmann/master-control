@@ -1,4 +1,4 @@
-//! Listening: a recording of what the machine plays, and what was heard in it (specs.md §3.5). The recording is
+//! Listening: a recording of what the machine plays, and what was heard in it (SPECIFICATION.md §3.5). The recording is
 //! made by a helper process (`mc-agent listen-run DIR`, the same program started again) so it outlives the call
 //! that started it, also when the master runs one process per call. The helper and the tools share only the
 //! listening's folder:

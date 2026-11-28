@@ -1,4 +1,4 @@
-//! The agent's own record of what it was asked to do (specs.md §5): one JSON line per request.
+//! The agent's own record of what it was asked to do (SPECIFICATION.md §5): one JSON line per request.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, Write};

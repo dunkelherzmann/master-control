@@ -1,4 +1,4 @@
-//! The HTTP API (specs.md §5): loopback only, a token on every request.
+//! The HTTP API (SPECIFICATION.md §5): loopback only, a token on every request.
 //!
 //! - `POST /v1/<tool>` with a JSON object of arguments; `GET /v1/status` works too.
 //! - `PUT /v1/files?path=…` writes the request body to a file; `GET /v1/files?path=…` returns a file's bytes.

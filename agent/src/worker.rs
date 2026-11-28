@@ -1,4 +1,4 @@
-//! Worker mode (specs.md §2, §5): the agent makes itself available to one master across the local network.
+//! Worker mode (SPECIFICATION.md §2, §5): the agent makes itself available to one master across the local network.
 //!
 //! A second listener, apart from the loopback one, takes one thing only: messages sealed with the key a pairing
 //! produced. Pairing is asked for from the worker's side, with the code the master shows (`pair_with_master`): the

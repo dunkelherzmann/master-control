@@ -1,5 +1,5 @@
 //! The Master Control agent: runs on the machine under test, in the signed-in session, and serves the HTTP API and
-//! MCP on the loopback interface (specs.md §2, §5).
+//! MCP on the loopback interface (SPECIFICATION.md §2, §5).
 
 #[cfg(target_os = "macos")]
 #[macro_use]

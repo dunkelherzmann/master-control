@@ -1,4 +1,4 @@
-//! Asking before taking over a computer someone is using (specs.md §3.4). Before the pointer, the keyboard or bringing
+//! Asking before taking over a computer someone is using (SPECIFICATION.md §3.4). Before the pointer, the keyboard or bringing
 //! a window forward, if a person used the real mouse or keyboard within the last minute (or as long as the machine is
 //! set to), a pop-up on that machine asks them, with OK and Cancel and no time limit. OK lets the agent's session
 //! carry on until it has been quiet a while and the person is back; Cancel refuses those actions with `user_declined`

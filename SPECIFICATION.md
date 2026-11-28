@@ -15,8 +15,8 @@ guards; on Linux also system-call events, on Windows registry events. On macOS t
 window-content tools and observation are built too, with less detail in the events (§4.3). On all three, the
 agent asks the person using a machine before taking over its mouse and keyboard (`take_over`, §3.4).
 Where a tool isn't built for a system yet it answers "not supported". Everything else is design.
-[pending.md](pending.md) has the build order and the open decisions; points that need a probe before they can be
-promised are marked **to prove**.
+The build order is in the last section before the reference apps; the open decisions and probes are entries in
+[enhancements.md](enhancements.md). Points that need a probe before they can be promised are marked **to prove**.
 
 ## 1. What it does
 
@@ -381,6 +381,43 @@ over SSH and starts it.
 | Linux | A kernel with BTF and eBPF CO-RE; X11 and Wayland sessions |
 | Windows | Windows 10 and 11, x64 and ARM64 |
 | macOS | macOS 15 and later, Apple silicon |
+
+### Versions and updating a worker
+
+The version is `VERSION` (major.minor) plus the commits since that file last changed; `scripts/version.sh` prints it and
+`core/build.rs` builds it in. A build from a copy without git history gets patch 0 unless `MC_VERSION` is set;
+`scripts/place.sh` passes it. The About link points to github.com/dunkelherzmann/master-control.
+
+The installed master and workers are copies; rebuilding the project doesn't replace them. `scripts/place.sh` builds a
+commit and places it on all three machines. By hand: send the commit's files, build with `MC_VERSION=$(scripts/version.sh)`,
+then run the new `mc-agent start --name NAME` there (on Windows from the desktop session, with `--any-network`); it
+replaces the program and restarts the worker, and the pairing stays. Run `start` outside the worker it replaces (a systemd
+unit of its own on Linux, a scheduled task of its own on Windows), or the restart cuts it off halfway. Check the built
+file's time or contents before installing; the version number alone doesn't tell two builds of one commit apart.
+
+## Build order
+
+What is built, and what comes next. Each open step is an entry in [enhancements.md](enhancements.md) (or
+[bugs.md](bugs.md)) with a box per platform; the entry carries the detail.
+
+1. Built: project skeleton, agent core (HTTP, MCP, token, audit log, `status`, `exec`, jobs, `push`/`pull`).
+2. Built: control on Linux (X11, GNOME Wayland), Windows and macOS: screen, windows, pointer, keyboard, clipboard,
+   window management, app launch and virtual desktops. Open: closing windows, installing and stopping apps,
+   recording, several monitors and HiDPI, focus refusal tests.
+3. Built: the accessibility tree, `find`, `wait_for` and element actions on all three systems. Open: more toolkits
+   tried, large trees on Linux and macOS.
+4. Built: observation on Linux (ptrace), Windows (ETW) and macOS (sandbox reports, `eslogger` with admin rights),
+   with call stacks. Open: the eBPF source, attach by app name, `stream`, `snapshot`, `stack`, `dump`,
+   `watch_memory`, `capture_content`, baselines, DNS names, settings and log events, deleting sessions; Windows
+   parity with Linux.
+5. Built: the app (Start, Pair and Cleanup for both roles, one program per platform, master and worker install,
+   admin rights). Open: the typed-address Pair screen, the Windows console flash, a window-clicking test, the update
+   step, `mctl test`.
+6. Next: network depth (packets, decrypted HTTPS scoped to the target), then memory depth (snapshots, dumps, watched
+   ranges), then the other Wayland desktops, then agentless back ends (VMs, KVM-over-IP).
+
+The open decisions (the name, the agentless back ends), the probes and the study suggestions are entries in
+[enhancements.md](enhancements.md) too.
 
 ## 7. Reference apps
 

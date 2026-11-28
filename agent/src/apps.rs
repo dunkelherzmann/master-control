@@ -1,4 +1,4 @@
-//! The apps a person can start from the system's own launcher, by the names the launcher shows (specs.md §3.1):
+//! The apps a person can start from the system's own launcher, by the names the launcher shows (SPECIFICATION.md §3.1):
 //! the Start menu on Windows, the Applications folders on macOS, the desktop entries on Linux.
 
 #[cfg(target_os = "linux")]

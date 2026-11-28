@@ -1,4 +1,4 @@
-//! The tools, with the same names in MCP, HTTP and the command line (specs.md §3.1).
+//! The tools, with the same names in MCP, HTTP and the command line (SPECIFICATION.md §3.1).
 
 use std::fmt;
 use std::fs;

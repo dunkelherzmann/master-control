@@ -1,4 +1,4 @@
-//! Installing the agent as a worker that starts with the user's desktop session and has admin rights (specs.md §6).
+//! Installing the agent as a worker that starts with the user's desktop session and has admin rights (SPECIFICATION.md §6).
 //!
 //! - Linux: a systemd user service tied to the graphical session. The install first puts on the system what the
 //!   program can't carry (`system_setup`): missing packages, a sudo rule for admin rights and a polkit rule

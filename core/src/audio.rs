@@ -1,5 +1,5 @@
 //! What a recording of a machine's sound holds: the sounds in it (when each starts and ends, how loud it is, its
-//! pitch) and the recording as a WAV file (specs.md §3.5). Shared by every system's way of capturing sound.
+//! pitch) and the recording as a WAV file (SPECIFICATION.md §3.5). Shared by every system's way of capturing sound.
 
 /// Samples are cut into steps this long to find where sounds start and end.
 const STEP_S: f64 = 0.010;
