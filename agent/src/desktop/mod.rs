@@ -300,6 +300,12 @@ pub trait Desktop {
     fn quiet_click(&self, _window: &WindowInfo, _x: i32, _y: i32) -> Result<String> {
         Err(quiet_is_not_built())
     }
+    /// Does what a plain click on the element would, without the pointer, when its toolkit's element places can't
+    /// be trusted to aim the pointer with: presses it through assistive technology, or moves the keyboard to it
+    /// with Tab; with `press` false it only moves the keyboard. Says what it did; None means the pointer is to be used.
+    fn click_without_pointer(&self, _window: &WindowInfo, _target: Target, _press: bool) -> Result<Option<String>> {
+        Ok(None)
+    }
     /// What has the keyboard inside the window's app, as (role, name): where typed text and keys will go. None
     /// where the system can't tell.
     fn keyboard_owner(&self, _window: &WindowInfo) -> Option<(String, String)> {

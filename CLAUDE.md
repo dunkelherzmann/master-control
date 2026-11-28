@@ -59,6 +59,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   only when the permission is missing. `MC_NO_ACTIVATE` did not stop the app's window becoming active.
 - **Trying a launchd agent on the Mac** without raising the firewall prompt: set its listen address to loopback
   with `launchctl setenv` before bootstrap and `unsetenv` after; check `socketfilterfw --getglobalstate` first.
+- **Sources sent to another machine** are unpacked with `tar -m`: with the sender's file dates, cargo there takes a
+  file older than its last build as unchanged and tests the old code (seen 2026-11-28; `check.sh` does it).
 - **Merging and building in one command line:** join the steps with `&&`, never `;` (a refused merge once left
   the build on the wrong commit). Prove an install by something only the new build has (the version), and build
   each program by name: `cargo build -p a --bin a -p b` builds only `a`'s program.
@@ -121,8 +123,11 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   arguments) as well as `MC_GNOME_GUI_TESTS=1`.
 - **AT-SPI positions on Wayland** are relative to the window. Count from the client rectangle
   (`frame_rect_to_client_rect`) when the shell draws the title bar (`decorated`, Xwayland apps), else from the frame:
-  for an app that draws its own frame the client rectangle includes its invisible shadow border. libadwaita dialogs
-  (zenity 4) give positions that leave out their padding, so the X11 tree test uses a plain GTK 4 dialog of ours.
+  for an app that draws its own frame the client rectangle includes its invisible shadow border. GTK 4 (4.24 and its
+  main branch) adds up each element's bounds inside its parent widget, counted from the parent's content box, so
+  every container's border and padding is lost (24 pixels across in a libadwaita dialog) and no AT-SPI call gives
+  the true place; it also refuses `GrabFocus`. A plain click by id on a GTK 4 element uses its `click` action, or
+  Tab for a field (`atspi::click_without_pointer`); never its `activate`, which is Enter in a field.
   Chromium's accessible title leaves out the profile name and the zero-width space the shell's title has.
 - **The GNOME test** drives the signed-in session, so it runs only when asked: on the Linux machine,
   `MC_GNOME_GUI_TESTS=1 cargo test -p mc-agent --test desktop_gnome` (the extension must be running, the screen

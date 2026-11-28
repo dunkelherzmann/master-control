@@ -155,6 +155,74 @@ fn a_wayland_window_is_arranged_and_the_workspaces_are_switched() {
     assert_eq!(test.tool("desktops", json!({}))["current"], home, "the first workspace is shown again");
 }
 
+/// GTK 4 gives element places that leave out every container's padding (zenity 4's libadwaita dialog is 24 pixels
+/// of it on each side), so the field's reported centre lies above the field. A click by an element's id must still
+/// do what a click on it does: give the field the keyboard, press OK.
+#[test]
+fn a_click_by_id_reaches_the_field_and_the_button_of_a_libadwaita_dialog() {
+    if !wanted() {
+        return;
+    }
+    let _turn = desktop_turn();
+    let test = Test::new();
+    let title = format!("mc gnome zenity {}", std::process::id());
+    // Closed however the test ends, so a failure doesn't leave the dialog on the desktop.
+    struct Closed(std::process::Child);
+    impl Drop for Closed {
+        fn drop(&mut self) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+    let mut app = Closed(Command::new("zenity")
+        .args(["--entry", "--title", &title, "--text", "Name of the thing:"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("zenity is needed for this test"));
+    test.tool("wait_for", json!({"window": title, "role": "text", "timeout_s": 30}));
+    std::thread::sleep(Duration::from_millis(500));
+    let field = |test: &Test| test.tool("find", json!({"window": title, "role": "text"}))["elements"][0].clone();
+
+    // The keyboard leaves the field, so only a click that lands on it brings it back.
+    test.tool("key", json!({"keys": "tab", "window": title}));
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while field(&test)["focused"] == true {
+        assert!(Instant::now() < deadline, "Tab left the keyboard in the field");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    let clicked = test.tool("click", json!({"element": field(&test)["id"]}));
+    // Typed text goes where the keyboard is; a space on Cancel would close the dialog.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while field(&test)["focused"] != true {
+        assert!(Instant::now() < deadline, "the click by id missed the field: {clicked}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    test.tool("type_text", json!({"text": "typed by id ✓", "window": title}));
+    // Typing into the field by its id brings the keyboard back to it too, and adds to the end of its text.
+    test.tool("key", json!({"keys": "tab", "window": title}));
+    let typed = test.tool("type_text", json!({"text": ", then by element", "element": field(&test)["id"]}));
+    let ok = test.tool("find", json!({"window": title, "role": "button", "name": "OK"}))["elements"][0].clone();
+    let pressed = test.tool("click", json!({"element": ok["id"]}));
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let status = loop {
+        if let Some(status) = app.0.try_wait().unwrap() {
+            break Some(status);
+        }
+        if Instant::now() > deadline {
+            break None;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let mut said = String::new();
+    if status.is_some() {
+        std::io::Read::read_to_string(app.0.stdout.as_mut().unwrap(), &mut said).unwrap();
+    }
+    assert!(status.is_some_and(|status| status.success()), "the OK click didn't close the dialog ({clicked}, {pressed})");
+    assert_eq!(said.trim_end(), "typed by id ✓, then by element", "the field held something else ({clicked}, {typed})");
+}
+
 /// The instance id in a sandboxed process's `.flatpak-info`, and the app's id.
 fn flatpak_of(pid: u64) -> Option<(String, String)> {
     let info = std::fs::read_to_string(format!("/proc/{pid}/root/.flatpak-info")).ok()?;

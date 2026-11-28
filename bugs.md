@@ -136,10 +136,18 @@ marked *found in testing*.
   **Fixed 2026-11-16:** a GNOME Shell extension serves the window list, pictures, input and the clipboard on the
   session bus, and the agent uses it on Wayland; element positions count from the app's own part of the window,
   and Chromium windows are matched by how their title begins.
-- [ ] 2026-11-16: **Clicks by element id miss in libadwaita dialogs** (Linux; *found in testing*): zenity 4's entry
+- [x] 2026-11-16: **Clicks by element id miss in libadwaita dialogs** (Linux; *found in testing*): zenity 4's entry
   dialog (libadwaita) reports AT-SPI positions that leave out the dialog's own padding, about 30 pixels on each axis,
   on Wayland and X11 alike, so a pointer click by an element's id lands beside the button. Element actions (`press`,
   `set_value`) don't use positions and work. Open: whether it is GTK's or libadwaita's, and a report upstream.
+  **Fixed 2026-11-28 (#50):** it is GTK 4's (4.24.1, and its main branch): each element's place is its bounds inside its
+  parent widget, counted from that parent's content box, added up over the parents that have elements, so every
+  container's border and padding is lost; the dialog's field was 33 pixels higher than drawn and its centre fell on
+  the label. No AT-SPI call gives the true place, and GTK 4 refuses `GrabFocus`. So a plain click by id on a GTK 4
+  element now presses it through its `click` action, or brings the keyboard to a field with Tab and puts the caret
+  at the end (not while a text view has the keyboard: Tab is typed there, and the pointer is used instead);
+  `type_text` and `key` with an element do the same. Double and right clicks by id still use the
+  reported place. A gated GNOME test on zenity 4 failed before the fix and passes after.
 
 - [x] 2026-11-16: **No screen or input on Linux after the upgrade to Ubuntu 26.10 (GNOME 51)** (Linux; *found in
   testing*): the extension's metadata didn't list GNOME 51, and GNOME 51 removed `Clutter.get_default_backend()`,

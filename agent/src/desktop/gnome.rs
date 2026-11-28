@@ -286,6 +286,13 @@ impl Desktop for GnomeDesktop {
         super::atspi::act(window, target, action)
     }
 
+    fn click_without_pointer(&self, window: &WindowInfo, target: super::Target, press: bool) -> Result<Option<String>> {
+        super::atspi::click_without_pointer(window, target, press, || {
+            self.key(Key::Tab, true)?;
+            self.key(Key::Tab, false)
+        })
+    }
+
     fn idle(&self) -> Option<std::time::Duration> {
         let ms: u64 = self.call("IdleTime", &()).ok()?;
         Some(std::time::Duration::from_millis(ms))
