@@ -309,7 +309,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   loopback, each optionally for one app only), with a virtual sink only where there is no output device (a headless
   session); return a recording the master can pull and play, plus what an agent can test without listening (sound
   started and stopped at, loudness, and a `wait_for` on a sound), recorded with the session's other events.
-  Built 2026-11-28 (#PR): `listen_start` and `listen_stop` (spec §3.5), with no virtual sound card needed on any of
+  Built 2026-11-28 (#41): `listen_start` and `listen_stop` (spec §3.5), with no virtual sound card needed on any of
   the three; one app's sound only is left for later.
   - [x] Mac: ScreenCaptureKit audio
   - [x] Linux: PipeWire's monitor of the default output
