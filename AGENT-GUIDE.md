@@ -88,6 +88,7 @@ no `machine` argument.
 | Inside a window | `tree`, `find`, `wait_for` | Elements with role, name, value and place; wait for one to appear or go |
 | Element actions | `press`, `set_value`, `toggle`, `expand`, `select` | Act on an element itself: no pointer, no keyboard, the window need not be in front |
 | Observation | `observe_start`, `observe_stop`, `events`, `summary`, `logs`, `sessions` | Record what a program does, search it, get a verdict |
+| Sound | `listen_start`, `listen_stop` | Record what a machine plays; get each sound's times, level and pitch, and a WAV to `pull` |
 | Asking first | `take_over` | Ask the person using a machine to let you take over its mouse and keyboard; hand it back |
 | Several at once | `batch` | Up to 30 steps in one call, a later step using an earlier one's answer |
 
@@ -227,6 +228,11 @@ of the window to look at the result.
 **Find out why a program misbehaves.**
 `observe_start` with `guard` on what it must not touch → reproduce → `observe_stop` → `events` with
 `class: "file"` or `"network"` around the time it went wrong.
+
+**Check that something makes a sound** (a bell, an alert): you can't hear, but the machine can.
+`listen_start` → do what should make the sound → `listen_stop` with `wait_for_sound_s` → `heard`, and each sound's
+`start_s`, `end_s`, `peak_dbfs` and `pitch_hz`. The sound is taken before the output's volume and mute, so a muted
+machine works too; `pull` the `wav` if a person should listen.
 
 ## Manners
 

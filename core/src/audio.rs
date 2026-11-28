@@ -93,41 +93,48 @@ fn peak(samples: &[f32]) -> f64 {
     samples.iter().fold(0.0_f64, |most, &s| most.max(f64::from(s).abs()))
 }
 
-/// The main pitch of a sound from 50 Hz to 4 kHz, by autocorrelation over its loudest stretch; `None` when no
-/// period stands out (noise).
+/// The main pitch of a sound from 50 Hz to 4 kHz, by autocorrelation over its loudest 50 ms; `None` when no period
+/// stands out (noise) or the sound is too short to have one.
 pub fn pitch(samples: &[f32], rate: u32) -> Option<f64> {
     let rate_f = f64::from(rate);
     let window = ((0.050 * rate_f) as usize).min(samples.len());
-    let shortest_lag = (rate_f / 4000.0).floor().max(1.0) as usize;
-    let longest_lag = (rate_f / 50.0).ceil() as usize;
-    if window < 2 * shortest_lag || window <= shortest_lag + 1 {
+    let shortest_lag = ((rate_f / 4000.0) as usize).max(1);
+    // A period must fit twice into the stretch looked at.
+    let longest_lag = ((rate_f / 50.0) as usize).min(window / 2);
+    if longest_lag <= shortest_lag + 1 {
         return None;
     }
-    // The loudest stretch of `window` samples, looked for in quarter-window steps.
-    let hop = (window / 4).max(1);
-    let start = (0..=samples.len() - window).step_by(hop).max_by(|&a, &b| rms(&samples[a..a + window]).total_cmp(&rms(&samples[b..b + window])))?;
+    // The loudest stretch, looked for in quarter-window steps: a sound's start may be a click or its end a fade.
+    let start = (0..=samples.len() - window).step_by((window / 4).max(1)).max_by(|&a, &b| rms(&samples[a..a + window]).total_cmp(&rms(&samples[b..b + window])))?;
     let part = &samples[start..start + window];
-    let energy: f64 = part.iter().map(|&s| f64::from(s) * f64::from(s)).sum();
-    if energy <= 0.0 {
-        return None;
+    // values[lag] is how alike the stretch is to itself moved by `lag` samples, from -1 to 1: the products over
+    // where the two overlap, divided by both overlapping parts' energy, so a period peaks at 1 however long it is.
+    let mut squares = Vec::with_capacity(window + 1);
+    squares.push(0.0f64);
+    for &sample in part {
+        squares.push(squares.last().copied().unwrap_or(0.0) + f64::from(sample) * f64::from(sample));
     }
-    let longest_lag = longest_lag.min(window - 1);
-    let correlation = |lag: usize| -> f64 {
-        let sum: f64 = part[..window - lag].iter().zip(&part[lag..]).map(|(&a, &b)| f64::from(a) * f64::from(b)).sum();
-        sum / energy
-    };
-    let values: Vec<f64> = (0..=longest_lag).map(|lag| if lag < shortest_lag { f64::MIN } else { correlation(lag) }).collect();
-    let best = values.iter().copied().fold(f64::MIN, f64::max);
+    let values: Vec<f64> = (0..=longest_lag)
+        .map(|lag| {
+            let product: f64 = part[..window - lag].iter().zip(&part[lag..]).map(|(&a, &b)| f64::from(a) * f64::from(b)).sum();
+            let both = (squares[window - lag] * (squares[window] - squares[lag])).sqrt();
+            if both > 0.0 { product / both } else { 0.0 }
+        })
+        .collect();
+    // Past the first dip below zero (half a period on), the next peak is a period.
+    let dip = values.iter().position(|&value| value < 0.0)?;
+    let first = dip.max(shortest_lag);
+    let best = values[first..].iter().copied().fold(f64::MIN, f64::max);
     if best < 0.5 {
         return None;
     }
     // The first peak that comes close to the best: the period itself, not a multiple of it.
-    let lag = (shortest_lag + 1..longest_lag).find(|&lag| values[lag] >= 0.9 * best && values[lag] >= values[lag - 1] && values[lag] >= values[lag + 1])?;
+    let at = (first.max(1)..longest_lag).find(|&i| values[i] >= 0.9 * best && values[i] >= values[i - 1] && values[i] >= values[i + 1])?;
     // A parabola through the peak and its neighbours places it between whole samples.
-    let (before, at, after) = (values[lag - 1], values[lag], values[lag + 1]);
-    let bend = before - 2.0 * at + after;
-    let shift = if bend.abs() > f64::EPSILON { 0.5 * (before - after) / bend } else { 0.0 };
-    Some(rate_f / (lag as f64 + shift))
+    let (before, here, after) = (values[at - 1], values[at], values[at + 1]);
+    let bend = before - 2.0 * here + after;
+    let shift = if bend == 0.0 { 0.0 } else { 0.5 * (before - after) / bend };
+    Some(rate_f / (at as f64 + shift))
 }
 
 /// Interleaved samples as a 16-bit PCM WAV file.
@@ -186,13 +193,15 @@ mod tests {
         let heard = analyse(&samples, RATE, DEFAULT_THRESHOLD_DBFS);
         assert_eq!(heard.sounds.len(), 1, "{heard:?}");
         let sound = &heard.sounds[0];
-        assert!((sound.start_s - 0.5).abs() < 0.011, "{sound:?}");
-        assert!((sound.end_s - 0.8).abs() < 0.011, "{sound:?}");
+        // The tone starts and ends on a 10 ms step, so its times are exact.
+        assert!((sound.start_s - 0.5).abs() < 1e-9, "{sound:?}");
+        assert!((sound.end_s - 0.8).abs() < 1e-9, "{sound:?}");
         assert!((sound.peak_dbfs - -20.0).abs() < 0.1, "{sound:?}");
         // A sine's RMS is 3 dB under its peak.
         assert!((sound.rms_dbfs - -23.0).abs() < 0.2, "{sound:?}");
         let hz = sound.pitch_hz.expect("a tone has a pitch");
-        assert!((hz - 880.0).abs() < 5.0, "{hz}");
+        // Within a hertz: the period falls between whole samples (54.5 at 48 kHz).
+        assert!((hz - 880.0).abs() < 1.0, "{hz}");
         assert!((heard.peak_dbfs - -20.0).abs() < 0.1);
     }
 
@@ -214,6 +223,25 @@ mod tests {
         assert_eq!(analyse(&faint, RATE, -70.0).sounds.len(), 1);
         let click = [silence(0.2), tone(880.0, 0.01, 0.5), silence(0.2)].concat();
         assert!(analyse(&click, RATE, DEFAULT_THRESHOLD_DBFS).sounds.is_empty());
+    }
+
+    #[test]
+    fn pitch_across_the_range_and_from_the_loudest_stretch() {
+        for hz in [60.0, 100.0, 440.0, 1234.0, 3000.0] {
+            let found = pitch(&tone(hz, 0.2, 0.2), RATE).unwrap_or_else(|| panic!("no pitch for {hz}"));
+            assert!((found - hz).abs() < hz * 0.005, "{hz}: {found}");
+        }
+        // Too low or too high for the range.
+        assert_eq!(pitch(&tone(30.0, 0.2, 0.2), RATE), None);
+        assert!(pitch(&tone(6000.0, 0.2, 0.2), RATE).is_none_or(|found| (found - 6000.0).abs() > 100.0));
+        // A loud tone after a quieter one of another pitch: the loud one is the sound's pitch.
+        let both = [tone(300.0, 0.1, 0.02), tone(700.0, 0.1, 0.3)].concat();
+        assert!((pitch(&both, RATE).unwrap() - 700.0).abs() < 3.5);
+        let both = [tone(700.0, 0.1, 0.3), tone(300.0, 0.1, 0.02)].concat();
+        assert!((pitch(&both, RATE).unwrap() - 700.0).abs() < 3.5);
+        // A period must fit twice: 5 ms of 100 Hz is too short to tell.
+        assert_eq!(pitch(&tone(100.0, 0.005, 0.2), RATE), None);
+        assert_eq!(pitch(&[], RATE), None);
     }
 
     #[test]
@@ -253,6 +281,10 @@ mod tests {
         assert_eq!(u16::from_le_bytes(file[32..34].try_into().unwrap()), 4);
         assert_eq!(u16::from_le_bytes(file[34..36].try_into().unwrap()), 16);
         assert_eq!(u32::from_le_bytes(file[40..44].try_into().unwrap()), 8);
+        let mono = wav(&[0.5], 8_000, 1);
+        assert_eq!(u32::from_le_bytes(mono[28..32].try_into().unwrap()), 8_000 * 2);
+        assert_eq!(u16::from_le_bytes(mono[32..34].try_into().unwrap()), 2);
+        assert_eq!(mono.len(), 46);
         let samples: Vec<i16> = file[44..].chunks(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
         assert_eq!(samples, vec![0, 32767, -32767, 32767]);
     }

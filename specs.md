@@ -67,6 +67,7 @@ Names are the same in MCP, HTTP (`POST /v1/<tool>`) and the CLI (`mctl <tool>`).
 | `push`, `pull` | Copy files to and from the machine |
 | `apps`, `launch` | The apps the system's launcher offers, by the names it shows and an id: the Start menu on Windows (`Get-StartApps`: desktop programs and Store apps), the Applications folders on macOS (`/Applications`, `/System/Applications`, their Utilities, `~/Applications`), the desktop entries on Linux (the XDG data folders, Flatpak's and Snap's; hidden entries left out, the user's own hiding the system's of the same file name). `launch` starts one by its name (exactly, in any case, or a part only one name has) or id, as the launcher would: through the shell on Windows (`shell:AppsFolder`, so it runs with the user's rights, not the agent's), `open -a` on macOS, `gio launch` on Linux; then it waits up to `wait_s` (10 by default) for a new titled window and answers with it, or with `window` null and a note |
 | `desktops` | The virtual desktops, numbered from 1 in the system's order, each with its name (empty when it has none) and whether it is shown; `action` `switch`, `create` (added at the end) or `remove` (its windows go to another, as the system does it; the only desktop can't be), by `number`. The answer is the list once it shows the change, read back (`failed` after 4 s otherwise). Windows: the list, the one shown and the names are Explorer's (`VirtualDesktops` in the user's registry); changes are its own documented shortcuts (Win+Ctrl+Left/Right, Win+Ctrl+D, Win+Ctrl+F4, the desktop to remove shown first). GNOME: the shell extension (Mutter's workspace manager; with dynamic workspaces, GNOME itself also adds and removes empty ones). X11: EWMH (`_NET_NUMBER_OF_DESKTOPS`, `_NET_CURRENT_DESKTOP`, `_NET_DESKTOP_NAMES`; only the last desktop can be removed); with no window manager, `not_supported`. macOS: the Spaces of every screen through the window server's unpublished `CGSCopyManagedDisplaySpaces` (an app in full screen is a Space named "full screen"), switched on the menu bar's screen with the system's Control-Left and Control-Right shortcuts; macOS offers no way to add or remove Spaces but Mission Control's own screen, so those answer `not_supported` |
+| `listen_start`, `listen_stop` | Record what the machine plays and say what was heard: each sound's times, level and pitch, and the recording as a WAV file (§3.5) |
 | `take_over` | Ask the person using the machine to let the agent take over its mouse and keyboard, hand it back, or say how things stand (§3.4) |
 | `install`, `stop` | Install and stop an app or package |
 | `record_start`, `record_stop` | Video of the screen or one window during a test |
@@ -155,6 +156,32 @@ default OK button (Return can't answer it by accident; Escape is Cancel), and th
 | **Windows** | low-level mouse and keyboard hooks, which mark input a program sent (the agent's, a test's) and so count only a person's | `MessageBoxW`, on top, Cancel the default button | `MessageBoxW` with one OK button, on a thread of its own |
 | **Linux, GNOME** | the shell's idle monitor, through the extension | a shell modal dialog from the extension, over everything; the agent asks for its answer until there is one | a shell modal dialog with one OK button |
 | **Linux, X11 without GNOME** | not known: it never asks | | |
+
+### 3.5 Listening
+
+An agent can't hear, so a machine's sound is turned into what an agent can test: `listen_start` starts recording
+what the machine plays, the agent does what should make a sound (rings a terminal's bell, raises an alert), and
+`listen_stop` answers with each sound found: its start and end in seconds from the start, its peak and average level
+in dBFS, and its main pitch in Hz (null for noise). The recording itself is kept as a 16-bit WAV file on the machine
+(`wav`, or `save_to`), which the master fetches with `pull` to play or keep. `wait_for_sound_s` makes `listen_stop`
+first wait, up to 60 s, for a sound to start and end (`timed_out` says whether one did); `threshold_dbfs` (default
+-50) is the quietest level that counts. A recording stops by itself after `limit_s` (default 60, at most 600).
+
+The sound is what the default output plays, taken before its volume and mute, so a muted machine is heard too, and
+no sound driver is installed:
+
+| | Where the sound comes from |
+|---|---|
+| **Linux** | PipeWire's monitor of the default output (`pw-record` with `stream.capture.sink`); PipeWire keeps a stand-in output when there is no sound card |
+| **macOS** | ScreenCaptureKit's audio of the main display (macOS 13 and later), with the Screen Recording permission pictures already need; the agent's own sound left out |
+| **Windows** | WASAPI loopback of the default output; a machine with no output device has nothing to listen to and says so |
+
+The recording is made by a helper process (`listen-run`, the agent's own program started again), so it outlives the
+call that started it, also on the master, which runs one process per call. macOS and Windows hand sound over only
+while something plays, stamped with the time, so the gaps are filled with silence to keep the times true. How sounds
+are found and measured (10 ms steps, parts closer than 100 ms joined, under 20 ms dropped, pitch by
+autocorrelation from 50 Hz to 4 kHz) is shared code in `core/src/audio.rs`. Listening is passive, like a picture, so
+it never asks to take over. Left for later: one app's sound only, and listening events in an observation session.
 
 ## 4. Observation
 
