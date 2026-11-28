@@ -549,7 +549,7 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [ ] Linux
   - [ ] Windows
 
-- [x] 2026-11-28 (Mac, Linux, Windows): **One set of trackers for every platform.** His request: SPECIFICATION.md as the spec, no pending.md; open port items moved into the trackers. In #PR.
+- [x] 2026-11-28 (Mac, Linux, Windows): **One set of trackers for every platform.** His request: SPECIFICATION.md as the spec, no pending.md; open port items moved into the trackers. In #52.
   - [x] Mac
   - [x] Linux
   - [x] Windows
