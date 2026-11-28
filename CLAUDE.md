@@ -20,9 +20,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   two tool lists `agent/tests/api.rs` pins.
 - **Layout:** Cargo workspace: `core/` (event store), `agent/` (the `mc-agent` program), `mctl/` (the master),
   `app/` (the `master-control` window, self-drawn until its egui rewrite in `enhancements.md`; icon `design/icon.svg`).
-- **A master is not "not a worker"** (his correction, 2026-11-11): the master gives agents full use of its own
-  machine as well as of its workers, so the app never says the master machine lacks the worker role.
-- **Master and workers** (his design): the master (`mctl`, the Mac) has full control of itself and its workers;
+- **Master and workers** (his design): the master (`mctl`, the Mac) has full control of itself and its workers,
+  so the app never says the master lacks the worker role (his correction, 2026-11-11);
   a worker (`mc-agent start`, then `mc-agent pair CODE` with the code `mctl pair` shows) is controlled by its
   master only; `cleanup` on either removes everything. The app is one window over these: Master or Worker, then
   Start / Pair / Cleanup.
@@ -60,11 +59,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   only when the permission is missing. `MC_NO_ACTIVATE` did not stop the app's window becoming active.
 - **Trying a launchd agent on the Mac** without raising the firewall prompt: set its listen address to loopback
   with `launchctl setenv` before bootstrap and `unsetenv` after; check `socketfilterfw --getglobalstate` first.
-- **Merging and building in one command line:** join the steps with `&&`, never `;`. On 2026-11-11 another
-  session had committed to `main`, the fast-forward merge refused, and the build and install that followed ran
-  from the wrong commit. After installing anywhere, prove the new build by something only it has (a new tool in
-  `status`, the version), and build each program by name: `cargo build -p a --bin a -p b` builds only `a`'s
-  program.
+- **Merging and building in one command line:** join the steps with `&&`, never `;` (a refused merge once left
+  the build on the wrong commit). Prove an install by something only the new build has (the version), and build
+  each program by name: `cargo build -p a --bin a -p b` builds only `a`'s program.
 - **A report or state read straight after an accessibility action can be the old one** (UI Automation's Toggle,
   GTK through AT-SPI): wait for the change, briefly, before answering.
 - **Input to a Mac app in the background** (public calls only): key events posted to the app's pid arrive in its
@@ -72,10 +69,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   the time unless the window is first made the app's main window (`AXMain`) and the shortcut's menu item is
   pressed. A shortcut needs the app to have that menu item: the test window has an Edit menu for this reason.
   The gated Mac test (`MC_MAC_GUI_TESTS=1`) acts only on its own window, which stays behind.
-- **Linux, a tracer started through sudo** (following a running program): it can't be signalled by the agent, so
-  it is stopped by a `stop` file in the session's folder; `setfsuid`/`setfsgid` to the invoking user keeps what
-  it writes the user's while the right to trace stays. Install the stop-signal handler before any early return
-  into another session loop.
+- **Linux, a tracer started through sudo** can't be signalled by the agent: a `stop` file in the session's folder
+  stops it; `setfsuid`/`setfsgid` to the invoking user keeps what it writes the user's while the right to trace
+  stays. Install the stop-signal handler before any early return into another session loop.
 - **Windows runs only a few kernel trace sessions at once** (error 1450): more observation tests in parallel
   than that fail unless the recorder waits for a place.
 - **A test agent that sends input must have asking off** (`{"active_within_s":0}` in its home's `take-over.json`,
@@ -96,11 +92,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   from. The reply must be "not handled" or the process never dies. A Mac program's file has no base address of
   its own (`relative_address_base` is 0): its first loaded part's address is the base.
 - **macOS crash reports** (`~/Library/Logs/DiagnosticReports/NAME-date.ips`) arrive about two seconds after a
-  crash, but a program that crashes repeatedly gets one for its first crash and none for a good while after.
-  Clearing the reports and the reporter's note
-  (`~/Library/Application Support/CrashReporter/NAME_*.plist`) changes nothing. A copy of the program under a new name is reported at once, which is how the
-  crash test gets a report every run. The test removes exactly the reports and notes it caused (his go-ahead,
-  2026-11-11).
+  crash, but a program that crashes repeatedly gets one only for its first crash for a good while, whatever is
+  cleared. A copy under a new name is reported at once, so the crash test makes one each run and removes exactly
+  the reports and notes it caused (his go-ahead, 2026-11-11).
 - **`mctl call` is one process per call,** so the master's own tools keep no last picture between calls: give
   desktop positions, not window-relative ones.
 - **Test GUI input against a real toolkit app as well as a raw fixture window:** a raw X11 window accepted a
@@ -113,9 +107,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   old code. To run a change without signing out, run `linux/scripts/load-gnome-extension.sh` on the Linux machine
   (after `mc-agent start` put the new files in place): it loads a copy from a new folder named after the UUID
   through Looking Glass, typed with Mutter's RemoteDesktop D-Bus API, which needs no prompt.
-  Raising `API` cuts the Linux worker off the desktop once it is installed (it refuses an older extension), so
-  after `place.sh` puts such a build there, run the loader script on the Linux machine at once (no clone there:
-  send it with `scripts/mc-exec linux --put`).
+  Raising `API` cuts the installed Linux worker off the desktop (it refuses an older extension): after `place.sh`,
+  run the loader there at once (send it with `scripts/mc-exec linux --put`).
   Each new GNOME release must be added to `shell-version` in `metadata.json`, or the shell won't load it; GNOME 51
   also dropped `Clutter.get_default_backend()` (the backend now comes from `global.stage.context`).
   `org.gnome.Shell.Screenshot` and `Introspect` refuse callers that aren't GNOME's own. The session locks after 5

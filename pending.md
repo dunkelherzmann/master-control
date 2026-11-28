@@ -9,8 +9,9 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
   system lacks. A Flatpak's sandbox is at odds with tracing, input and services.
 
 - [x] **Language.** Rust for the agent, helper and controller (decided 2026-11-11).
-- [ ] **First platform.** Proposed: Linux and Windows first, since the prototype skill already runs there and those
-  machines are free for testing; then macOS.
+- [x] **First platform.** Linux and Windows first, since the prototype skill already ran there and those
+  machines were free for testing; then macOS. Settled by the build order below: steps 3 to 6 on Linux and Windows,
+  and all three systems are built and installed now.
 - [x] **GitHub repository.** Work stays local; nothing goes to GitHub until a functional, tested prototype is ready
   (decided 2026-11-11). Published 2026-11-12 at his request as `dunkelherzmann/master-control`, public, with a
   fresh history starting at 0.2.
