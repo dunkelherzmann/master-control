@@ -7,6 +7,9 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 use super::{common_role, DesktopError, Element, Rect, Result, TreeLimits, WindowInfo};
 
+#[path = "atspi_roles.rs"]
+mod roles;
+
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 /// Bits of the state set, as AT-SPI numbers them.
@@ -72,6 +75,15 @@ impl Bus {
         self.connection.call_method(Some(of.0.as_str()), of.1.as_str(), Some(interface), method, &()).ok().and_then(|reply| reply.body().deserialize().ok())
     }
 
+    /// The element's role as AT-SPI names it. Some toolkits (AccessKit, under egui and other Rust toolkits) answer
+    /// only with the role's number and leave naming it to the reader, as libatspi does.
+    fn role(&self, of: &Reference) -> String {
+        if let Some(name) = self.call::<String>(of, ACCESSIBLE, "GetRoleName").filter(|name| !name.is_empty()) {
+            return name;
+        }
+        self.call::<u32>(of, ACCESSIBLE, "GetRole").and_then(|number| roles::NAMES.get(number as usize)).map(|name| name.to_string()).unwrap_or_default()
+    }
+
     fn process(&self, connection_name: &str) -> u32 {
         self.connection
             .call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), "GetConnectionUnixProcessID", &(connection_name,))
@@ -84,8 +96,12 @@ impl Bus {
     fn window(&self, window: &WindowInfo) -> Option<Reference> {
         let root = ("org.a11y.atspi.Registry".to_string(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").ok()?);
         let mut by_title_only = None;
+        // An app in a Flatpak sandbox reaches the bus through its xdg-dbus-proxy, so the bus names the proxy's
+        // process, not the app's: both run in the same sandbox instance.
+        let sandbox = sandbox_instance(window.pid);
         for app in self.children(&root) {
-            let same_process = window.pid != 0 && self.process(&app.0) == window.pid;
+            let process = if window.pid != 0 { self.process(&app.0) } else { 0 };
+            let same_process = window.pid != 0 && (process == window.pid || (sandbox.is_some() && sandbox_instance(process) == sandbox));
             if window.pid != 0 && !same_process && by_title_only.is_some() {
                 continue;
             }
@@ -107,9 +123,34 @@ impl Bus {
                 _ => {}
             }
         }
-        // A window whose process the X server doesn't know (no _NET_WM_PID) can only be found by its title.
-        by_title_only.filter(|_| window.pid == 0)
+        // A window whose process the X server doesn't know (no _NET_WM_PID) can only be found by its title; so can a
+        // sandboxed one whose proxy's sandbox can't be read.
+        by_title_only.filter(|_| window.pid == 0 || sandbox.is_some())
     }
+}
+
+/// The Flatpak sandbox instance a process runs in, from the `.flatpak-info` every process in one (the app's and its
+/// bus proxies') sees at its root. None outside a sandbox.
+fn sandbox_instance(pid: u32) -> Option<String> {
+    if pid == 0 {
+        return None;
+    }
+    instance_id(&std::fs::read_to_string(format!("/proc/{pid}/root/.flatpak-info")).ok()?)
+}
+
+/// The `instance-id` in the `[Instance]` group of a `.flatpak-info` file.
+fn instance_id(info: &str) -> Option<String> {
+    let mut group = "";
+    for line in info.lines().map(str::trim) {
+        if line.starts_with('[') {
+            group = line;
+        } else if group == "[Instance]" {
+            if let Some(id) = line.strip_prefix("instance-id=").map(str::trim).filter(|id| !id.is_empty()) {
+                return Some(id.to_string());
+            }
+        }
+    }
+    None
 }
 
 /// How many characters two titles begin with alike, leaving out zero-width characters.
@@ -156,7 +197,7 @@ impl Reading<'_> {
         } else {
             None
         };
-        let role: String = bus.call(of, ACCESSIBLE, "GetRoleName").unwrap_or_default();
+        let role = bus.role(of);
         let name = bus.name(of);
         // A label's text is its name; saying it twice helps nobody.
         let value = value.filter(|value| *value != name);
@@ -256,7 +297,7 @@ pub fn act(window: &WindowInfo, target: super::Target, action: &super::ElementAc
         parent = Some((at, index));
         at = child;
     }
-    let role: String = bus.call(&at, ACCESSIBLE, "GetRoleName").unwrap_or_default();
+    let role = bus.role(&at);
     target.check(&common_role(&role), &bus.name(&at))?;
     let interfaces: Vec<String> = bus.call(&at, ACCESSIBLE, "GetInterfaces").unwrap_or_default();
     let offers = |name: &str| interfaces.iter().any(|interface| interface == name);
@@ -361,12 +402,31 @@ pub fn tree(window: &WindowInfo, limits: TreeLimits) -> Result<(Element, bool)> 
 
 #[cfg(test)]
 mod tests {
-    use super::shared_start;
+    use super::{instance_id, roles, shared_start};
 
     #[test]
     fn titles_are_compared_by_how_they_begin() {
         assert_eq!(shared_start("Page - Microsoft Edge", "Page - Personal - Microsoft\u{200b} Edge"), 7);
         assert_eq!(shared_start("Restore pages", "Page - Personal - Microsoft Edge"), 0);
         assert_eq!(shared_start("Mic\u{200b}rosoft", "Microsoft"), 9);
+    }
+
+    #[test]
+    fn a_sandbox_is_known_by_its_instance() {
+        let info = "[Application]\nname=org.example.app\nruntime=runtime/org.gnome.Platform/x86_64/49\n\n[Instance]\ninstance-id=3109406568\nbranch=stable\n\n[Context]\nshared=network;ipc;\n";
+        assert_eq!(instance_id(info).as_deref(), Some("3109406568"));
+        assert_eq!(instance_id("[Application]\nname=org.example.app\ninstance-id=1\n"), None);
+        assert_eq!(instance_id("[Instance]\ninstance-id=\n"), None);
+    }
+
+    #[test]
+    fn role_numbers_name_what_accesskit_sends() {
+        // GetRole's numbers for what an egui window holds, as AccessKit sends them.
+        assert_eq!(roles::NAMES[43], "button");
+        assert_eq!(roles::NAMES[37], "page tab");
+        assert_eq!(roles::NAMES[62], "toggle button");
+        assert_eq!(roles::NAMES[75], "application");
+        assert_eq!(super::common_role(roles::NAMES[62]), "button");
+        assert_eq!(super::common_role(roles::NAMES[37]), "tab");
     }
 }
