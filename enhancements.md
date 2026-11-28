@@ -299,3 +299,16 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [ ] Mac
   - [ ] Linux
   - [ ] Windows
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **Hear the machines.** Let the master "hear" sounds coming from the master
+  and the workers when needed, so an agent can check a bell, an alert or any app's sound. His idea: create or
+  temporarily plug in a virtual sound card that routes audio to the master doing the listening; it doesn't have to
+  be done that way. First use: Herb's Terminal's bell (feature test B6), which its suite can't check today.
+  Proposed, to decide when it is built: capture what the machine plays without a driver where the system offers it
+  (macOS ScreenCaptureKit audio, Linux the PipeWire/PulseAudio monitor of the default output, Windows WASAPI
+  loopback, each optionally for one app only), with a virtual sink only where there is no output device (a headless
+  session); return a recording the master can pull and play, plus what an agent can test without listening (sound
+  started and stopped at, loudness, and a `wait_for` on a sound), recorded with the session's other events.
+  - [ ] Mac
+  - [ ] Linux
+  - [ ] Windows
