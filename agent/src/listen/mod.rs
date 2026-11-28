@@ -86,7 +86,8 @@ pub fn listen_start(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
     // The helper is left to run on its own; listen_stop ends it.
     drop(child);
 
-    let deadline = Instant::now() + Duration::from_secs(10);
+    // A sound server that has put its output to sleep can take a while to wake it.
+    let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         if let Ok(error) = fs::read_to_string(directory.join("error.txt")) {
             return Err(ToolError { code: "failed", message: error.trim().to_string() });
@@ -95,7 +96,15 @@ pub fn listen_start(agent: &Agent, args: &Value) -> Result<Value, ToolError> {
             return Ok(json!({ "listen": id, "rate": rate, "channels": channels, "limit_s": limit_s }));
         }
         if directory.join("ended").exists() || Instant::now() > deadline {
-            return Err(ToolError::failed("the listening helper didn't start recording in time; see helper.log in its folder"));
+            let said = fs::read_to_string(directory.join("helper.log")).unwrap_or_default();
+            let said = said.trim();
+            let said = if said.is_empty() { String::new() } else { format!(": {}", &said[said.char_indices().rev().nth(399).map_or(0, |(at, _)| at)..]) };
+            if let Ok(child_pid) = fs::read_to_string(directory.join("pid")) {
+                if let Ok(pid) = child_pid.trim().parse::<u32>() {
+                    crate::platform::kill_tree(pid);
+                }
+            }
+            return Err(ToolError::failed(format!("the listening helper didn't start recording in time{said}")));
         }
         std::thread::sleep(Duration::from_millis(20));
     }
