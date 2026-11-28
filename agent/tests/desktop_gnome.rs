@@ -154,3 +154,67 @@ fn a_wayland_window_is_arranged_and_the_workspaces_are_switched() {
     }
     assert_eq!(test.tool("desktops", json!({}))["current"], home, "the first workspace is shown again");
 }
+
+/// The instance id in a sandboxed process's `.flatpak-info`, and the app's id.
+fn flatpak_of(pid: u64) -> Option<(String, String)> {
+    let info = std::fs::read_to_string(format!("/proc/{pid}/root/.flatpak-info")).ok()?;
+    let field = |key: &str| info.lines().find_map(|line| line.strip_prefix(key)).map(|value| value.trim().to_string());
+    Some((field("instance-id=")?, field("name=")?))
+}
+
+/// An app in a Flatpak reaches the accessibility bus through its sandbox's proxy, so the bus names the proxy's
+/// process and not the window's. Needs an installed Flatpak app whose window describes itself (any toolkit):
+/// `MC_FLATPAK_TREE_APP="APP-ID [ARGUMENTS…]"`, as `flatpak run` takes them. AccessKit apps (egui) answer only with
+/// role numbers, which this test covers when the app is one.
+#[test]
+fn a_flatpak_windows_controls_are_read_with_their_roles() {
+    if !wanted() {
+        return;
+    }
+    let Some(command) = std::env::var("MC_FLATPAK_TREE_APP").ok().filter(|command| !command.trim().is_empty()) else {
+        eprintln!("skipped: set MC_FLATPAK_TREE_APP to an installed Flatpak app (and its arguments) to read a sandboxed window");
+        return;
+    };
+    let _turn = desktop_turn();
+    let test = Test::new();
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let app_id = words.iter().find(|word| !word.starts_with('-')).copied().unwrap_or_default().to_string();
+    let ids = |windows: &Value| windows["windows"].as_array().unwrap().iter().map(|window| window["id"].clone()).collect::<Vec<_>>();
+    let before = ids(&test.tool("windows", json!({})));
+    let mut runner = Command::new("flatpak").arg("run").args(&words).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().expect("flatpak is needed");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let window = loop {
+        let windows = test.tool("windows", json!({}));
+        let new = windows["windows"].as_array().unwrap().iter().find(|window| {
+            !before.contains(&window["id"]) && flatpak_of(window["pid"].as_u64().unwrap_or(0)).is_some_and(|(_, name)| name == app_id)
+        });
+        if let Some(window) = new {
+            break window.clone();
+        }
+        assert!(Instant::now() < deadline, "no new window of {app_id} in 30 s: {windows}");
+        std::thread::sleep(Duration::from_millis(250));
+    };
+    let (instance, _) = flatpak_of(window["pid"].as_u64().unwrap()).unwrap();
+    // Some toolkits describe their windows only a moment after they are first asked.
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let tree = loop {
+        let (status, answer) = test.post("/v1/tree", &json!({"window": window["id"], "max_elements": 300}));
+        if status == 200 || Instant::now() > deadline {
+            break (status, answer);
+        }
+        std::thread::sleep(Duration::from_millis(500));
+    };
+    let _ = Command::new("flatpak").args(["kill", &instance]).status();
+    let _ = runner.wait();
+    // The sandbox goes a moment after it is told to; the next test mustn't find it.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline && Command::new("flatpak").args(["ps", "--columns=instance"]).output().is_ok_and(|listed| String::from_utf8_lossy(&listed.stdout).lines().any(|line| line.trim() == instance)) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    let (status, tree) = tree;
+    assert_eq!(status, 200, "tree failed: {tree}");
+    let elements = tree["elements"].as_array().unwrap();
+    assert!(elements.len() > 3, "{tree}");
+    assert!(elements.iter().all(|element| !element["role"].as_str().unwrap_or_default().is_empty()), "an element with no role: {tree}");
+    assert!(elements.iter().any(|element| element["role"] == "button"), "no button in {tree}");
+}
