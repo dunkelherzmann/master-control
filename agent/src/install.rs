@@ -285,14 +285,9 @@ fn is_ours(text: &str, user: &str) -> bool {
     text == sudo_rule(user) || text == polkit_rule(user)
 }
 
-/// The commands that, run as root, install what is missing and give `user` admin rights without a password; None
-/// when nothing is to be done. `manager` is the index into `MANAGERS` of the one this system has.
-#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn root_script(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>) -> Option<String> {
-    root_script_with(missing, manager, rule_for, None)
-}
-
-/// `root_script`, and the polkit rule for `polkit_for`.
+/// The commands that, run as root, install what is missing, give `rule_for` admin rights without a password and
+/// let `polkit_for` through the system's password dialogs; None when nothing is to be done. `manager` is the index
+/// into `MANAGERS` of the one this system has.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 fn root_script_with(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>, polkit_for: Option<&str>) -> Option<String> {
     let mut lines = Vec::new();
@@ -599,15 +594,15 @@ mod tests {
 
     #[test]
     fn linux_set_up_installs_what_is_missing_and_the_sudo_rule() {
-        assert_eq!(root_script(&[], Some(0), None), None, "nothing to do");
-        let apt = root_script(&[&ACCESSIBILITY_BUS, &GSETTINGS], Some(0), None).unwrap();
+        assert_eq!(root_script_with(&[], Some(0), None, None), None, "nothing to do");
+        let apt = root_script_with(&[&ACCESSIBILITY_BUS, &GSETTINGS], Some(0), None, None).unwrap();
         assert!(apt.contains("apt-get update") && apt.contains("apt-get install -y at-spi2-core libglib2.0-bin"), "{apt}");
-        let dnf = root_script(&[&SUDO, &GSETTINGS], Some(1), Some("herb")).unwrap();
+        let dnf = root_script_with(&[&SUDO, &GSETTINGS], Some(1), Some("herb"), None).unwrap();
         assert!(dnf.contains("dnf install -y sudo glib2"), "{dnf}");
         assert!(dnf.contains("> /etc/sudoers.d/master-control.new") && dnf.contains("\nherb ALL=(ALL) NOPASSWD: ALL\n"), "{dnf}");
         let (check, place) = (dnf.find("visudo -cqf").unwrap(), dnf.find("mv /etc/sudoers.d/master-control.new").unwrap());
         assert!(check < place && dnf.starts_with("set -e"), "the rule is checked before it is put in place: {dnf}");
-        let rule_only = root_script(&[&SUDO], None, Some("herb")).unwrap();
+        let rule_only = root_script_with(&[&SUDO], None, Some("herb"), None).unwrap();
         assert!(!rule_only.contains("install"), "no package manager: only the rule: {rule_only}");
     }
 
