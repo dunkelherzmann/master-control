@@ -48,7 +48,9 @@ COMMIT="$(git rev-parse --short HEAD)"
 # One folder per commit on the other machines, so two checks at once don't delete each other's files.
 DIR="mc-check-$COMMIT"
 
-# The tar both machines get, written once; mc-exec copies it there and the machine unpacks it.
+# The tar both machines get, written once; mc-exec copies it there and the machine unpacks it. It is unpacked with
+# -m (files dated now): with the sender's dates, a file older than that machine's last build into the shared target
+# folder (an older commit, a working tree sent again) isn't rebuilt, and the old code is tested.
 TAR="$LOGS/$DIR.tar"
 case " $MACHINES " in *" linux "* | *" windows "*) send >"$TAR" ;; esac
 
@@ -68,7 +70,7 @@ for machine in $MACHINES; do
         ;;
     linux)
         (mc-exec "$LINUX_HOST" --put "$TAR" "/tmp/$DIR.tar" \
-         && mc-exec "$LINUX_HOST" --timeout 1900 "rm -rf /tmp/$DIR && mkdir -p /tmp/$DIR && tar -x -C /tmp/$DIR -f /tmp/$DIR.tar \
+         && mc-exec "$LINUX_HOST" --timeout 1900 "rm -rf /tmp/$DIR && mkdir -p /tmp/$DIR && tar -m -x -C /tmp/$DIR -f /tmp/$DIR.tar \
             && rm -f /tmp/$DIR.tar && cd /tmp/$DIR && PATH=\$HOME/.cargo/bin:\$PATH CARGO_TARGET_DIR=\$HOME/.cache/mc-check-target timeout 1800 sh -c 'cargo test --workspace 2>&1 && cargo clippy --workspace --all-targets -- -D warnings 2>&1'; \
             code=\$?; rm -rf /tmp/$DIR /tmp/$DIR.tar; exit \$code"
          echo $? >"$LOGS/linux.status") >"$LOGS/linux.log" 2>&1 &
@@ -78,7 +80,7 @@ for machine in $MACHINES; do
         (WTEMP="$(mc-exec "$WINDOWS_HOST" "echo %TEMP%" | tr -d '\r\n')" && [ -n "$WTEMP" ] \
          && mc-exec "$WINDOWS_HOST" --put "$TAR" "$WTEMP\\$DIR.tar" \
          && mc-exec "$WINDOWS_HOST" --timeout 3600 "(if exist %TEMP%\\$DIR rmdir /s /q %TEMP%\\$DIR) & mkdir %TEMP%\\$DIR \
-            && tar -x -C %TEMP%\\$DIR -f %TEMP%\\$DIR.tar && del /q %TEMP%\\$DIR.tar && cd /d %TEMP%\\$DIR \
+            && tar -m -x -C %TEMP%\\$DIR -f %TEMP%\\$DIR.tar && del /q %TEMP%\\$DIR.tar && cd /d %TEMP%\\$DIR \
             && set CARGO_TARGET_DIR=%LOCALAPPDATA%\\mc-check-target&& cargo test --workspace 2>&1 && cargo clippy --workspace --all-targets -- -D warnings 2>&1"
          echo $? >"$LOGS/windows.status"
          mc-exec "$WINDOWS_HOST" "cd /d %TEMP% & rmdir /s /q %TEMP%\\$DIR & del /q %TEMP%\\$DIR.tar" >/dev/null 2>&1) >"$LOGS/windows.log" 2>&1 &

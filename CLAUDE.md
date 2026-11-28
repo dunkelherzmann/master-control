@@ -59,6 +59,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   only when the permission is missing. `MC_NO_ACTIVATE` did not stop the app's window becoming active.
 - **Trying a launchd agent on the Mac** without raising the firewall prompt: set its listen address to loopback
   with `launchctl setenv` before bootstrap and `unsetenv` after; check `socketfilterfw --getglobalstate` first.
+- **Sources sent to another machine** are unpacked with `tar -m`: with the sender's file dates, cargo there takes a
+  file older than its last build as unchanged and tests the old code (seen 2026-11-28; `check.sh` does it).
 - **Merging and building in one command line:** join the steps with `&&`, never `;` (a refused merge once left
   the build on the wrong commit). Prove an install by something only the new build has (the version), and build
   each program by name: `cargo build -p a --bin a -p b` builds only `a`'s program.
