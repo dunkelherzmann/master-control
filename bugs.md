@@ -147,7 +147,8 @@ marked *found in testing*.
   element now presses it through its `click` action, or brings the keyboard to a field with Tab and puts the caret
   at the end (not while a text view has the keyboard: Tab is typed there, and the pointer is used instead);
   `type_text` and `key` with an element do the same. Double and right clicks by id still use the
-  reported place. A gated GNOME test on zenity 4 failed before the fix and passes after.
+  reported place. A gated GNOME test on zenity 4 failed before the fix and passes after. Installed as 0.2.124 on
+  all three; on the Linux machine a click by id on zenity's field and then on OK returned the typed text.
 
 - [x] 2026-11-16: **No screen or input on Linux after the upgrade to Ubuntu 26.10 (GNOME 51)** (Linux; *found in
   testing*): the extension's metadata didn't list GNOME 51, and GNOME 51 removed `Clutter.get_default_backend()`,
