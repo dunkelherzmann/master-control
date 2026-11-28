@@ -104,6 +104,7 @@ pub fn cleanup(master: Master) -> io::Result<Vec<String>> {
     }
     done.extend(crate::agents::unregister(&crate::agents::Places::here()));
     done.extend(firewall(false, false));
+    done.extend(mc_agent::install::remove_system_setup());
     let home = master.home().to_path_buf();
     drop(master);
     if std::fs::remove_dir_all(&home).is_ok() {

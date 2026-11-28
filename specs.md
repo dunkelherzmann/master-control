@@ -360,12 +360,16 @@ Windows a guard can be a registry key (`HKCU\Software\App`); names there match w
 The agent, helper and controller are written in Rust. Installing gives Master Control admin rights once, so nothing it does later needs a password or an elevation
 prompt. `mc-agent start` copies the program into place and starts it as a worker with the desktop session:
 on Linux a systemd user service, with admin rights through sudo: the install first puts on the system what the
-program can't carry (the accessibility bus, sudo, gsettings, through apt, dnf, pacman or zypper) and the sudo rule,
-as root through sudo, the desktop's password prompt (pkexec) or sudo in the terminal; on macOS a launch agent in the desktop session that launchd keeps running, with admin rights
-through sudo in the same way (a Mac worker does commands, files, screen, input, the accessibility tree and observation); on Windows a scheduled task at sign-in with highest privileges and no window, plus a
+program can't carry (the accessibility bus, sudo, gsettings, through apt, dnf, pacman or zypper), the sudo rule and
+a polkit rule (`/etc/polkit-1/rules.d/49-master-control.rules`) so the system's own password dialogs (pkexec, the
+desktop's settings) let the user through, as root through sudo, the desktop's password prompt (pkexec) or sudo in the terminal; on macOS a launch agent in the desktop session that launchd keeps running, with admin rights
+through a sudo rule the person adds (Start, master or worker, checks for it and gives the line to add when it's missing; the
+system's authorization dialogs stay the person's) (a Mac worker does commands, files, screen, input, the accessibility tree and observation); on Windows a scheduled task at sign-in with highest privileges and no window, plus a
 firewall rule that lets the master reach the worker's port on private networks only, or with `--any-network` on
 public ones too (for a machine whose network Windows has marked Public). `mc-agent cleanup` undoes
-it and removes the worker's folder. `exec` takes `elevated` to run a command with admin rights. On macOS a worker that listens on the network makes the system's own firewall ask once whether to let it; that
+it and removes the worker's folder, and on Linux the sudo and polkit rules Start wrote (a rule written by hand stays).
+`status` says under `capabilities` whether elevated commands need no password (`admin_without_password`) and, on
+Linux, whether the password dialogs let the user through (`dialogs_without_password`). `exec` takes `elevated` to run a command with admin rights. On macOS a worker that listens on the network makes the system's own firewall ask once whether to let it; that
 answer is the user's. One self-contained program per platform, nothing else to install: a portable `.exe` on Windows, a signed app bundle
 on macOS, on Linux one static binary (musl) that needs no installing and is the window, the master and the worker at once; it
 tells an X11 session from GNOME on Wayland on its own (the agent needs the real session and the kernel, so it is not

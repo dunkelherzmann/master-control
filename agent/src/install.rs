@@ -1,8 +1,8 @@
 //! Installing the agent as a worker that starts with the user's desktop session and has admin rights (specs.md §6).
 //!
 //! - Linux: a systemd user service tied to the graphical session. The install first puts on the system what the
-//!   program can't carry (`system_setup`): missing packages and a sudo rule for admin rights, asking for the password
-//!   once.
+//!   program can't carry (`system_setup`): missing packages, a sudo rule for admin rights and a polkit rule
+//!   so the system's password dialogs let the user through, asking for the password once. Cleanup takes the rules out.
 //! - macOS: a launch agent in the user's desktop session, kept running by launchd. Admin rights come from sudo, as
 //!   on Linux.
 //! - Windows: a scheduled task at sign-in that runs with highest privileges, and a firewall rule that lets the
@@ -218,14 +218,6 @@ pub fn install(name: Option<&str>, any_network: bool) -> io::Result<Vec<String>>
         loaded?;
         done.push(format!("installed and started the launch agent {LAUNCH_AGENT} (starts when you sign in)"));
         done.push("for the screen, the keyboard and the mouse, allow this program in System Settings > Privacy & Security: Screen Recording and Accessibility".into());
-        if run("sudo", &["-n", "true"]).is_ok() {
-            done.push("admin rights: this user can use sudo without a password, so elevated commands work".into());
-        } else {
-            let user = crate::platform::user();
-            done.push(format!(
-                "admin rights are NOT set up: sudo asks this user for a password. To grant them: echo '{user} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/master-control && sudo chmod 440 /etc/sudoers.d/master-control"
-            ));
-        }
     }
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
@@ -263,11 +255,41 @@ const MANAGERS: [(&str, &str); 4] = [
 
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 const SUDO_RULE: &str = "/etc/sudoers.d/master-control";
-
-/// The commands that, run as root, install what is missing and give `user` admin rights without a password; None
-/// when nothing is to be done. `manager` is the index into `MANAGERS` of the one this system has.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-fn root_script(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>) -> Option<String> {
+const POLKIT_FOLDER: &str = "/etc/polkit-1/rules.d";
+/// polkit reads the rules in this folder in name order; 49 comes before the system's own 50-default.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const POLKIT_RULE: &str = "/etc/polkit-1/rules.d/49-master-control.rules";
+/// What marks a rule as written by Start, so Cleanup takes out only those and leaves one written by hand.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+const MARK: &str = "Master Control's Start";
+
+/// The sudo rule that gives `user` admin rights without a password.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn sudo_rule(user: &str) -> String {
+    format!("# Written by {MARK}: {user} runs commands as root without a password. Its Cleanup takes it out.\n{user} ALL=(ALL) NOPASSWD: ALL\n")
+}
+
+/// The polkit rule that lets `user` do every admin action without the system's password dialog (pkexec, the
+/// desktop's settings, installing software), as the sudo rule does for commands.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn polkit_rule(user: &str) -> String {
+    format!(
+        "// Master Control: written by {MARK}, so {user} does every admin action without being asked for a password. Its Cleanup takes it out.\npolkit.addRule(function(action, subject) {{\n    if (subject.user == \"{user}\") {{\n        return polkit.Result.YES;\n    }}\n}});\n"
+    )
+}
+
+/// Whether a rule file holds what Start writes for `user`.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn is_ours(text: &str, user: &str) -> bool {
+    text == sudo_rule(user) || text == polkit_rule(user)
+}
+
+/// The commands that, run as root, install what is missing, give `rule_for` admin rights without a password and
+/// let `polkit_for` through the system's password dialogs; None when nothing is to be done. `manager` is the index
+/// into `MANAGERS` of the one this system has.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn root_script_with(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>, polkit_for: Option<&str>) -> Option<String> {
     let mut lines = Vec::new();
     if let (false, Some(manager)) = (missing.is_empty(), manager) {
         let mut packages: Vec<&str> = missing.iter().map(|need| need.packages[manager]).collect();
@@ -279,12 +301,76 @@ fn root_script(missing: &[&Need], manager: Option<usize>, rule_for: Option<&str>
     }
     if let Some(user) = rule_for {
         // Checked before it is put in place: a broken file in sudoers.d stops sudo for everyone.
-        lines.push(format!("printf '%s\\n' '{user} ALL=(ALL) NOPASSWD: ALL' > {SUDO_RULE}.new"));
+        lines.push(format!("cat > {SUDO_RULE}.new <<'MASTER_CONTROL_RULE'\n{}MASTER_CONTROL_RULE", sudo_rule(user)));
         lines.push(format!("chmod 440 {SUDO_RULE}.new"));
         lines.push(format!("if command -v visudo >/dev/null; then visudo -cqf {SUDO_RULE}.new; fi"));
         lines.push(format!("mv {SUDO_RULE}.new {SUDO_RULE}"));
     }
+    if let Some(user) = polkit_for {
+        lines.push(format!("mkdir -p {POLKIT_FOLDER}"));
+        lines.push(format!("cat > {POLKIT_RULE}.new <<'MASTER_CONTROL_RULE'\n{}MASTER_CONTROL_RULE", polkit_rule(user)));
+        lines.push(format!("chmod 644 {POLKIT_RULE}.new"));
+        lines.push(format!("mv {POLKIT_RULE}.new {POLKIT_RULE}"));
+    }
     (!lines.is_empty()).then(|| format!("set -e\n{}\n", lines.join("\n")))
+}
+
+/// The commands that, run as root, take out the rules (path, still ours) that are Start's; None when none is.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+fn removal_script(rules: &[(&str, bool)]) -> Option<String> {
+    let lines: Vec<String> = rules.iter().filter(|(_, ours)| *ours).map(|(path, _)| format!("rm -f {path}")).collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
+/// A root-only file's text: read directly, else through sudo when it asks no password.
+#[cfg(target_os = "linux")]
+fn read_as_root(path: &str) -> Option<String> {
+    std::fs::read_to_string(path).ok().or_else(|| {
+        let output = Command::new("sudo").args(["-n", "cat", path]).stdin(std::process::Stdio::null()).output().ok()?;
+        output.status.success().then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+    })
+}
+
+/// Linux: whether the system's own password dialogs (polkit) let this user through without asking, because
+/// Start's rule is in place. None where there is no polkit.
+pub fn dialogs_without_password() -> Option<bool> {
+    #[cfg(target_os = "linux")]
+    {
+        if !std::path::Path::new("/etc/polkit-1").is_dir() {
+            return None;
+        }
+        Some(read_as_root(POLKIT_RULE).is_some_and(|text| text == polkit_rule(&crate::platform::user())))
+    }
+    #[cfg(not(target_os = "linux"))]
+    None
+}
+
+/// Whether this user can run commands as root without a password (Linux, macOS), or the agent runs elevated (Windows).
+pub fn admin_without_password() -> bool {
+    if cfg!(windows) {
+        return crate::platform::elevated();
+    }
+    crate::platform::elevated() || run("sudo", &["-n", "true"]).is_ok()
+}
+
+/// Takes out the sudo and polkit rules Start wrote (Linux; rules written by hand stay). Says what it did.
+pub fn remove_system_setup() -> Vec<String> {
+    #[cfg(target_os = "linux")]
+    {
+        let user = crate::platform::user();
+        let rules: Vec<(&str, bool)> = [SUDO_RULE, POLKIT_RULE].iter().map(|path| (*path, read_as_root(path).is_some_and(|text| is_ours(&text, &user)))).collect();
+        let Some(script) = removal_script(&rules) else { return Vec::new() };
+        // SAFETY: geteuid has no arguments and cannot fail.
+        let root = unsafe { libc::geteuid() } == 0;
+        let removed = if root { run("sh", &["-c", &script]) } else { run("sudo", &["-n", "sh", "-c", &script]) };
+        let what = rules.iter().filter(|(_, ours)| *ours).map(|(path, _)| *path).collect::<Vec<_>>().join(" and ");
+        return vec![match removed {
+            Ok(()) => format!("removed {what}"),
+            Err(error) => format!("could NOT remove {what} ({error}); as root, run:\n{script}"),
+        }];
+    }
+    #[allow(unreachable_code)]
+    Vec::new()
 }
 
 /// A user name that can go into a sudo rule and a shell line as it is.
@@ -326,6 +412,8 @@ pub fn system_setup() -> Vec<String> {
         let root = unsafe { libc::geteuid() } == 0;
         let sudo_asks = !root && !(on_path("sudo") && run("sudo", &["-n", "true"]).is_ok());
         let rule_for = (sudo_asks && plain_user_name(&user)).then_some(user.as_str());
+        // The system's own password dialogs go through polkit, which the sudo rule doesn't cover.
+        let polkit_for = (dialogs_without_password() == Some(false) && plain_user_name(&user)).then_some(user.as_str());
         let mut done = Vec::new();
         if !missing.is_empty() && manager.is_none() {
             done.push(format!(
@@ -333,8 +421,8 @@ pub fn system_setup() -> Vec<String> {
                 missing.iter().map(|need| need.what).collect::<Vec<_>>().join("; ")
             ));
         }
-        let Some(script) = root_script(&missing, manager, rule_for) else {
-            done.push("the system has everything Master Control needs, and admin rights work without a password".into());
+        let Some(script) = root_script_with(&missing, manager, rule_for, polkit_for) else {
+            done.push("the system has everything Master Control needs, and admin rights and the system's password dialogs work without a password".into());
             return done;
         };
         let graphical = std::env::var_os("DISPLAY").is_some() || std::env::var_os("WAYLAND_DISPLAY").is_some();
@@ -350,7 +438,13 @@ pub fn system_setup() -> Vec<String> {
         } else {
             None
         };
-        let what = missing.iter().map(|need| need.what).chain(rule_for.map(|_| "a sudo rule (admin rights without a password)")).collect::<Vec<_>>().join("; ");
+        let what = missing
+            .iter()
+            .map(|need| need.what)
+            .chain(rule_for.map(|_| "a sudo rule (admin rights without a password)"))
+            .chain(polkit_for.map(|_| "a polkit rule (the system's password dialogs let this user through)"))
+            .collect::<Vec<_>>()
+            .join("; ");
         match ran {
             Some((how, Ok(()))) => done.push(format!("set up, {how}: {what}")),
             Some((_, Err(error))) => done.push(format!("could NOT set up {what} ({error}); as root, run:\n{script}")),
@@ -358,7 +452,19 @@ pub fn system_setup() -> Vec<String> {
         }
         done
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        // The rule is put in by the person: macOS has no prompt a program can use for it.
+        if admin_without_password() {
+            vec!["admin rights: this user can use sudo without a password, so elevated commands work; the system's own password dialogs stay the person's".into()]
+        } else {
+            let user = crate::platform::user();
+            vec![format!(
+                "admin rights are NOT set up: sudo asks this user for a password. To grant them: echo '{user} ALL=(ALL) NOPASSWD: ALL' | sudo tee /etc/sudoers.d/master-control && sudo chmod 440 /etc/sudoers.d/master-control"
+            )]
+        }
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     Vec::new()
 }
 
@@ -454,6 +560,7 @@ pub fn uninstall() -> io::Result<Vec<String>> {
             }
             done.push(format!("removed the GNOME Shell extension {uuid} (the shell lets go of it when the user next signs in)"));
         }
+        done.extend(remove_system_setup());
     }
     #[cfg(target_os = "macos")]
     {
@@ -488,16 +595,41 @@ mod tests {
 
     #[test]
     fn linux_set_up_installs_what_is_missing_and_the_sudo_rule() {
-        assert_eq!(root_script(&[], Some(0), None), None, "nothing to do");
-        let apt = root_script(&[&ACCESSIBILITY_BUS, &GSETTINGS], Some(0), None).unwrap();
+        assert_eq!(root_script_with(&[], Some(0), None, None), None, "nothing to do");
+        let apt = root_script_with(&[&ACCESSIBILITY_BUS, &GSETTINGS], Some(0), None, None).unwrap();
         assert!(apt.contains("apt-get update") && apt.contains("apt-get install -y at-spi2-core libglib2.0-bin"), "{apt}");
-        let dnf = root_script(&[&SUDO, &GSETTINGS], Some(1), Some("herb")).unwrap();
+        let dnf = root_script_with(&[&SUDO, &GSETTINGS], Some(1), Some("herb"), None).unwrap();
         assert!(dnf.contains("dnf install -y sudo glib2"), "{dnf}");
-        assert!(dnf.contains("'herb ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/master-control.new"), "{dnf}");
+        assert!(dnf.contains("> /etc/sudoers.d/master-control.new") && dnf.contains("\nherb ALL=(ALL) NOPASSWD: ALL\n"), "{dnf}");
         let (check, place) = (dnf.find("visudo -cqf").unwrap(), dnf.find("mv /etc/sudoers.d/master-control.new").unwrap());
         assert!(check < place && dnf.starts_with("set -e"), "the rule is checked before it is put in place: {dnf}");
-        let rule_only = root_script(&[&SUDO], None, Some("herb")).unwrap();
+        let rule_only = root_script_with(&[&SUDO], None, Some("herb"), None).unwrap();
         assert!(!rule_only.contains("install"), "no package manager: only the rule: {rule_only}");
+    }
+
+    #[test]
+    fn linux_set_up_puts_the_polkit_rule_in_place_for_the_user() {
+        let rule = polkit_rule("herb");
+        assert!(rule.contains("subject.user == \"herb\"") && rule.contains("return polkit.Result.YES;"), "{rule}");
+        assert!(rule.starts_with("// Master Control"), "it says whose it is: {rule}");
+        let script = root_script_with(&[], Some(0), None, Some("herb")).unwrap();
+        assert!(script.starts_with("set -e"), "{script}");
+        assert!(script.contains(&format!("mkdir -p {POLKIT_FOLDER}")), "{script}");
+        assert!(script.contains(&format!("> {POLKIT_RULE}.new")) && script.contains(&rule), "the rule is written as it is: {script}");
+        let (written, placed) = (script.find(&format!("> {POLKIT_RULE}.new")).unwrap(), script.find(&format!("mv {POLKIT_RULE}.new {POLKIT_RULE}")).unwrap());
+        assert!(written < placed && script.contains(&format!("chmod 644 {POLKIT_RULE}.new")), "{script}");
+        assert_eq!(root_script_with(&[], Some(0), None, None), None, "nothing to do");
+        let both = root_script_with(&[], None, Some("herb"), Some("herb")).unwrap();
+        assert!(both.contains(SUDO_RULE) && both.contains(POLKIT_RULE), "{both}");
+    }
+
+    #[test]
+    fn cleanup_takes_out_only_rules_that_are_still_ours() {
+        let script = removal_script(&[(SUDO_RULE, true), (POLKIT_RULE, false)]).unwrap();
+        assert!(script.contains(&format!("rm -f {SUDO_RULE}")) && !script.contains(POLKIT_RULE), "{script}");
+        assert_eq!(removal_script(&[(SUDO_RULE, false), (POLKIT_RULE, false)]), None);
+        assert!(is_ours(&sudo_rule("herb"), "herb") && is_ours(&polkit_rule("herb"), "herb"));
+        assert!(!is_ours("herb ALL=(ALL) NOPASSWD: ALL\n", "herb"), "a rule someone wrote by hand stays");
         assert!(plain_user_name("herb") && plain_user_name("first.last") && !plain_user_name("a b") && !plain_user_name("x'y") && !plain_user_name("-r"));
     }
 

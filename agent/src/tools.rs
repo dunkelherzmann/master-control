@@ -659,6 +659,10 @@ fn status(agent: &Agent, _args: &Value) -> Result<Value, ToolError> {
         "permissions_needed": permissions_needed,
         "capabilities": {
             "exec": true,
+            // Commands with `elevated` run as root or admin without anyone typing a password.
+            "admin_without_password": crate::install::admin_without_password(),
+            // Linux: the system's own password dialogs (polkit) let this user through; null elsewhere.
+            "dialogs_without_password": crate::install::dialogs_without_password(),
             "files": true,
             "screen": screen,
             "input": input,
