@@ -335,3 +335,81 @@ fn events_carry_the_call_stack_that_led_to_them() {
     assert!(s.events(session, json!({"class": "file"})).iter().all(|event| event["stack"] == json!([])));
 }
 
+
+/// The machine's trace sessions by name, as `logman` lists them.
+/// The listing fails now and then while sessions start and stop around it, so it is asked again.
+fn trace_sessions() -> Vec<String> {
+    for _ in 0..10 {
+        let listed = std::process::Command::new("logman").args(["query", "-ets"]).output().unwrap();
+        if listed.status.success() {
+            return String::from_utf8_lossy(&listed.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect();
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    panic!("logman couldn't list the trace sessions");
+}
+
+/// A running session's target and recorder, once its state says it runs.
+fn running(s: &Session, session: u64) -> (u64, u64) {
+    let state = s.test.home.join("sessions").join(session.to_string()).join("state.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let read: Value = std::fs::read(&state).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null);
+        if read["state"] == "running" {
+            return (read["pid"].as_u64().unwrap(), read["tracer"].as_u64().unwrap());
+        }
+        assert!(Instant::now() < deadline, "the session didn't start: {read}");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// Ends the processes and trace sessions a test made, however it ends, so none is left taking a place on the machine.
+struct Leftovers {
+    pids: Vec<u64>,
+    sessions: Vec<String>,
+}
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        for pid in &self.pids {
+            let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+        }
+        let listed = trace_sessions();
+        for name in self.sessions.iter().filter(|name| listed.contains(name)) {
+            let _ = std::process::Command::new("logman").args(["stop", name, "-ets"]).output();
+        }
+    }
+}
+
+/// A recorder ended from outside never stops its trace session, and Windows keeps it, taking one of its few places
+/// for such sessions. The next recorder to start stops it, and leaves a session whose recorder still runs alone.
+#[test]
+fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
+    let s = Session::new();
+    let mut leftovers = Leftovers { pids: Vec::new(), sessions: Vec::new() };
+    let live = s.start(&["sleep=60000".into()], json!({}));
+    let (live_target, live_tracer) = running(&s, live);
+    leftovers.pids.push(live_target);
+    let live_name = format!("MasterControl-{live}-{live_tracer}");
+    let killed = s.start(&["sleep=60000".into()], json!({}));
+    let (target, tracer) = running(&s, killed);
+    leftovers.pids.extend([tracer, target]);
+    let name = format!("MasterControl-{killed}-{tracer}");
+    leftovers.sessions.extend([name.clone(), live_name.clone()]);
+    assert!(trace_sessions().contains(&name), "{name} runs while its recorder does");
+    for pid in [tracer, target] {
+        std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
+    }
+    // Windows keeps the session now; nothing is asserted about that here, since any other test's recorder that
+    // starts in the meantime stops it too.
+
+    let (_, verdict) = s.run(&["exit=0".into()], json!({}));
+    assert_eq!(verdict["state"], "exited", "{verdict}");
+    let listed = trace_sessions();
+    let folder = s.test.home.join("sessions").join(live.to_string());
+    let said = |file: &str| std::fs::read_to_string(folder.join(file)).unwrap_or_default();
+    assert!(listed.contains(&live_name), "a session whose recorder runs is left alone: {live_name}\nstate: {}\ntracer.log: {}\nlisted: {listed:?}", said("state.json"), said("tracer.log"));
+    assert!(!listed.contains(&name), "the next recorder stopped {name}");
+    let verdict = s.test.tool("observe_stop", json!({"session": live}));
+    assert_eq!(verdict["state"], "stopped", "{verdict}");
+}
