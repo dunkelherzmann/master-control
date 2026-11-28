@@ -19,7 +19,7 @@ use windows_sys::core::GUID;
 use windows_sys::Win32::Foundation::CloseHandle;
 use windows_sys::Win32::Storage::FileSystem::QueryDosDeviceW;
 use windows_sys::Win32::System::Diagnostics::Etw::{
-    CloseTrace, ControlTraceW, EnableTraceEx2, OpenTraceW, ProcessTrace, StartTraceW, TdhGetProperty, TdhGetPropertySize, CONTROLTRACE_HANDLE,
+    CloseTrace, ControlTraceW, EnableTraceEx2, OpenTraceW, ProcessTrace, QueryAllTracesW, StartTraceW, TdhGetProperty, TdhGetPropertySize, CONTROLTRACE_HANDLE,
     ENABLE_TRACE_PARAMETERS, EVENT_HEADER_EXTENDED_DATA_ITEM, EVENT_RECORD, EVENT_TRACE_LOGFILEW, EVENT_TRACE_PROPERTIES, PROPERTY_DATA_DESCRIPTOR,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -645,6 +645,64 @@ fn properties(name: &[u16]) -> Vec<u64> {
     block
 }
 
+/// The process id of the recorder that started a trace session of ours, from the session's name
+/// (`MasterControl-<session>-<recorder>`), or nothing for anyone else's session.
+fn recorder_of(name: &str) -> Option<u32> {
+    name.strip_prefix("MasterControl-")?.rsplit_once('-')?.1.parse().ok()
+}
+
+/// A properties block with room for a session's name and its log file's name, as QueryAllTraces and a stop by name
+/// fill them in.
+fn named_block() -> Vec<u64> {
+    const ROOM: usize = 1024 * 2;
+    let size = size_of::<EVENT_TRACE_PROPERTIES>() + 2 * ROOM;
+    let mut block = vec![0u64; size.div_ceil(8)];
+    // SAFETY: the block is zeroed, aligned and at least as large as the structure.
+    let header = unsafe { &mut *(block.as_mut_ptr() as *mut EVENT_TRACE_PROPERTIES) };
+    header.Wnode.BufferSize = size as u32;
+    header.LoggerNameOffset = size_of::<EVENT_TRACE_PROPERTIES>() as u32;
+    header.LogFileNameOffset = (size_of::<EVENT_TRACE_PROPERTIES>() + ROOM) as u32;
+    block
+}
+
+/// Stops the trace sessions of ours whose recorder is gone. A recorder ended from outside never stops its session,
+/// and Windows keeps it running with nobody reading it, in one of the few places it has for sessions that carry the
+/// kernel's events. A session is left alone while a program of ours (the installed one or a test's copy, whichever
+/// started it) runs under its recorder's process id.
+fn stop_orphaned_sessions() {
+    const MOST: usize = 64;
+    let mut blocks: Vec<Vec<u64>> = (0..MOST).map(|_| named_block()).collect();
+    let mut pointers: Vec<*mut EVENT_TRACE_PROPERTIES> = blocks.iter_mut().map(|block| block.as_mut_ptr().cast()).collect();
+    let mut count = 0u32;
+    // SAFETY: each pointer is to a block laid out as QueryAllTraces expects, with room for both names.
+    let queried = unsafe { QueryAllTracesW(pointers.as_mut_ptr(), MOST as u32, &mut count) };
+    // 234: more sessions than blocks; the ones that fitted are filled in.
+    if queried != 0 && queried != 234 {
+        return;
+    }
+    let program = |path: &str| Path::new(path).file_name().map(|name| name.to_string_lossy().to_lowercase());
+    let own = std::env::current_exe().ok().and_then(|path| program(&path.to_string_lossy()));
+    let ours = |path: &str| program(path).is_some_and(|name| Some(&name) == own.as_ref() || name == "master-control.exe" || name == "mc-agent.exe");
+    for block in blocks.iter().take(count as usize) {
+        // SAFETY: the block is at least as large as the structure, and its name ends with a zero inside the block.
+        let name = unsafe {
+            let header = &*(block.as_ptr() as *const EVENT_TRACE_PROPERTIES);
+            let start = (block.as_ptr() as *const u8).add(header.LoggerNameOffset as usize) as *const u16;
+            let units = std::slice::from_raw_parts(start, 1024);
+            String::from_utf16_lossy(&units[..units.iter().position(|unit| *unit == 0).unwrap_or(0)])
+        };
+        let Some(recorder) = recorder_of(&name) else { continue };
+        if recorder == std::process::id() || image_of(recorder).is_some_and(|path| ours(&path)) {
+            continue;
+        }
+        let mut stop = named_block();
+        let wide_name = wide(&name);
+        // SAFETY: the name is zero-ended; the block has room for what the stop writes back.
+        let stopped = unsafe { ControlTraceW(CONTROLTRACE_HANDLE { Value: 0 }, wide_name.as_ptr(), stop.as_mut_ptr().cast(), CONTROL_STOP) };
+        eprintln!("observe-run: stopped the trace session {name}, whose recorder is gone ({stopped})");
+    }
+}
+
 fn write_state(directory: &Path, state: &Value) {
     let _ = crate::jobs::write_whole(&directory.join("state.json"), state.to_string().as_bytes());
 }
@@ -833,6 +891,7 @@ pub fn run(directory: &Path) -> io::Result<()> {
         Ok(())
     };
 
+    stop_orphaned_sessions();
     let name = wide(&format!("MasterControl-{}-{}", directory.file_name().and_then(|name| name.to_str()).unwrap_or("session"), std::process::id()));
     let mut block = properties(&name);
     let mut session = CONTROLTRACE_HANDLE { Value: 0 };
@@ -1009,4 +1068,18 @@ pub fn run(directory: &Path) -> io::Result<()> {
     }
     write_state(directory, &json!({ "state": if stopped { "stopped" } else { "exited" }, "pid": pid, "exit_code": exit_code, "events": tracer.written }));
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::recorder_of;
+
+    #[test]
+    fn a_session_name_gives_its_recorder() {
+        assert_eq!(recorder_of("MasterControl-12-4812"), Some(4812));
+        assert_eq!(recorder_of("MasterControl-a-b-c-77"), Some(77), "the recorder's id is the last part");
+        assert_eq!(recorder_of("MasterControl-12-"), None);
+        assert_eq!(recorder_of("NT Kernel Logger"), None);
+        assert_eq!(recorder_of("master-control-12-4812"), None, "only our own spelling");
+    }
 }

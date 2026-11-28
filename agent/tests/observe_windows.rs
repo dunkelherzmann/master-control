@@ -335,3 +335,43 @@ fn events_carry_the_call_stack_that_led_to_them() {
     assert!(s.events(session, json!({"class": "file"})).iter().all(|event| event["stack"] == json!([])));
 }
 
+
+/// The machine's trace sessions by name, as `logman` lists them.
+fn trace_sessions() -> Vec<String> {
+    let listed = std::process::Command::new("logman").args(["query", "-ets"]).output().unwrap();
+    String::from_utf8_lossy(&listed.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect()
+}
+
+/// A recorder ended from outside never stops its trace session, and Windows keeps it, taking one of its few places
+/// for such sessions. The next recorder to start stops it.
+#[test]
+fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
+    let s = Session::new();
+    let session = s.start(&["sleep=60000".into()], json!({}));
+    let state = s.test.home.join("sessions").join(session.to_string()).join("state.json");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let (target, tracer) = loop {
+        let read: Value = std::fs::read(&state).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null);
+        if read["state"] == "running" {
+            break (read["pid"].as_u64().unwrap(), read["tracer"].as_u64().unwrap());
+        }
+        assert!(Instant::now() < deadline, "the session didn't start: {read}");
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    let name = format!("MasterControl-{session}-{tracer}");
+    assert!(trace_sessions().contains(&name), "{name} runs while its recorder does");
+    for pid in [tracer, target] {
+        std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
+    }
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(trace_sessions().contains(&name), "Windows keeps the session after its recorder is killed");
+
+    let (_, verdict) = s.run(&["exit=0".into()], json!({}));
+    assert_eq!(verdict["state"], "exited", "{verdict}");
+    let left = trace_sessions().contains(&name);
+    if left {
+        // Not left taking a place on the machine when the test fails.
+        let _ = std::process::Command::new("logman").args(["stop", &name, "-ets"]).output();
+    }
+    assert!(!left, "the next recorder stopped {name}");
+}

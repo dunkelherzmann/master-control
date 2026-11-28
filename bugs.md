@@ -169,7 +169,10 @@ marked *found in testing*.
   `master-control-*` kernel trace sessions were still running with nothing observing, after test runs whose
   processes were ended from outside; they took Windows' few places, so later observations failed with "all are
   taken" until they were stopped by hand (`logman stop NAME -ets`). The recorder should stop stale sessions of
-  its own name on start, or name them so a new recorder can tell they are orphaned.
+  its own name on start, or name them so a new recorder can tell they are orphaned. **Fixed:** each recorder,
+  before it starts its own session, lists the machine's trace sessions and stops every `MasterControl-…` one whose
+  recorder (the process id at the end of its name) is no longer one of our programs
+  (`a_killed_recorders_trace_session_is_stopped_by_the_next_one`).
 
 - [ ] 2026-11-26: **Two Mac observation tests fail under a full parallel run** (macOS; *found in testing*).
   `a_running_program_is_followed_and_left_running` and `file_activity_is_recorded_in_order` failed twice in a
