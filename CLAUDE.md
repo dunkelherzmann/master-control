@@ -130,15 +130,15 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 - **What `exec` starts on Linux runs in a scope of its own** (`systemd-run --user --scope`, with
   `--expand-environment=no` or systemd rewrites every `$`), because systemd stops everything in a service's cgroup,
   `setsid` included, whenever the worker service stops or restarts (each install, each log-out).
+- **Test polkit with `pkcheck --action-id org.freedesktop.policykit.exec --process $$`** (0 allowed, 2 asks), never
+  `pkexec`: it opens a password dialog on the person's desktop.
 - **X11:** a window must select ButtonPress to receive ButtonRelease (the release goes to whoever took the
   press).
 - **Fonts:** embed only a static file per weight (`fc-scan` says `variable=False`); Ubuntu's R/M/B files are one
   variable font, which the simple rasteriser draws at regular weight only.
-- **Tables of platform facts** (syscall numbers) are generated from the target machine's own headers with a
-  committed script (`scripts/gen-syscalls.sh`), never typed from memory.
+- **Tables of platform facts** (syscall numbers) come from the machine's own headers (`scripts/gen-syscalls.sh`).
 - **ETW:** read provider event layouts from the machine (`Get-WinEvent -ListProvider`) before decoding; a
   system-logger-mode session can carry manifest providers and classic kernel flags together.
-- **Test arguments that pack a path with other data** must not use a colon as separator: `C:\` splits there and
-  the program writes somewhere else.
-- **Porting a tracer feature:** list the reference's behaviours from our own source, read the target platform's
-  event layouts live, and read an open-source tool's source for the mechanism.
+- **Test arguments that pack a path with other data** never use a colon as separator (`C:\` splits there).
+- **Porting a tracer feature:** list the reference's behaviours from our source, read the platform's event layouts
+  live, and an open-source tool's source for the mechanism.
