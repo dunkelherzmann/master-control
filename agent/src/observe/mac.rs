@@ -1219,13 +1219,50 @@ pub fn run(directory: &Path) -> io::Result<()> {
     }
     recorder.tell_crashes(true);
     // Our own child: taking its status lets the system forget it. It is also the last word on how the target
-    // ended, should the event that told of its end have been lost on the way.
-    let reaped = reap();
+    // ended, should the event that told of its end have been lost on the way, or have come before the end was
+    // complete: the system can tell of an exit a moment before the status can be taken, so it is waited for.
+    let reaped = if attach.is_some() {
+        None
+    } else {
+        let until = Instant::now() + Duration::from_secs(2);
+        loop {
+            let mut status = 0;
+            // SAFETY: asks about our own child without waiting; status is a local.
+            let taken = unsafe { libc::waitpid(child as libc::pid_t, &mut status, libc::WNOHANG) };
+            if taken == child as libc::pid_t {
+                break Some(status);
+            }
+            // Below zero: already taken, by the kernel's own end event.
+            if taken < 0 || Instant::now() > until {
+                break None;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    };
     if !(stopped && attach.is_some()) {
         recorder.finish();
     }
     if let (true, Some(status)) = (recorder.outcome.is_null(), reaped) {
         recorder.outcome = if libc::WIFEXITED(status) { json!({ "exit_code": libc::WEXITSTATUS(status) }) } else { json!({ "signal": signal_name(libc::WTERMSIG(status)) }) };
+    }
+    if recorder.outcome.is_null() && reaped.is_none() && stopped && attach.is_none() {
+        // A stopped session whose target nothing has told the end of: it is ended now, and its own status read, so
+        // the answer is what really happened, not a guess.
+        // SAFETY: plain calls on our own child; a pid that is already gone is refused harmlessly.
+        unsafe { libc::kill(child as libc::pid_t, libc::SIGKILL) };
+        let until = Instant::now() + Duration::from_secs(1);
+        loop {
+            let mut status = 0;
+            // SAFETY: asks about our own child without waiting; status is a local.
+            let taken = unsafe { libc::waitpid(child as libc::pid_t, &mut status, libc::WNOHANG) };
+            if taken == child as libc::pid_t {
+                recorder.outcome = if libc::WIFEXITED(status) { json!({ "exit_code": libc::WEXITSTATUS(status) }) } else { json!({ "signal": signal_name(libc::WTERMSIG(status)) }) };
+            }
+            if taken != 0 || Instant::now() > until {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
     }
     recorder.flush();
     let source = if recorder.by_events { "system events" } else { "sandbox reports" };

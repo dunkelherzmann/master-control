@@ -374,6 +374,17 @@ fn only_what_the_filters_keep_is_recorded_but_problems_always_are() {
     assert_eq!(s.test.refused("observe_start", json!({"command": "true", "classes": ["files"]})), (400, "bad_input".into()));
 }
 
+/// However soon a session is stopped after it starts, its verdict says how the target ended: killed, by the session.
+#[test]
+fn a_session_stopped_at_once_says_its_target_was_killed() {
+    let s = Session::new();
+    for round in 0..12 {
+        let session = s.start(&["sleep=60000".into()], json!({}));
+        let verdict = s.test.tool("observe_stop", json!({"session": session}));
+        assert_eq!((&verdict["state"], &verdict["signal"], &verdict["verdict"]), (&json!("stopped"), &json!("SIGKILL"), &json!("ok")), "round {round}: {verdict}");
+    }
+}
+
 /// A program that is already running is followed from the moment the session starts, and left running when it stops.
 #[test]
 fn a_running_program_is_followed_and_left_running() {
@@ -387,12 +398,24 @@ fn a_running_program_is_followed_and_left_running() {
         let _ = target.wait();
         return;
     }
-    // It idles first, so the session is in place before it does anything worth seeing.
-    let mut target = spawn(&["sleep=2500".into(), format!("write={file}|x"), "spawn".into(), format!("read={file}"), "exit=4".into()]);
+    // It waits to be told to go, so the session is in place before it does anything worth seeing: under a full
+    // test run, starting the recorder and the system's event reader takes longer than any fixed idle is sure to cover.
+    let go = s.path("go.txt");
+    // However the test ends, the target is told to go, so it runs to its own end instead of waiting for ever (a
+    // leftover holds its program file, and the next build can't replace it).
+    struct Release(String);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.0, "go");
+        }
+    }
+    let _release = Release(go.clone());
+    let mut target = spawn(&[format!("await={go}"), "sleep=500".into(), format!("write={file}|x"), "spawn".into(), format!("read={file}"), "exit=4".into()]);
     let pid = target.id();
     let started = s.test.tool("observe_start", json!({"pid": pid}));
     assert_eq!((&started["pid"], &started["command"]), (&json!(pid), &json!(format!("(running, pid {pid})"))), "{started}");
     let session = started["session"].as_u64().unwrap();
+    std::fs::write(&go, "go").unwrap();
     assert_eq!(target.wait().unwrap().code(), Some(4), "it ran to its own end, unharmed");
     s.finished(session);
     let verdict = s.test.tool("observe_stop", json!({"session": session}));

@@ -281,6 +281,15 @@ fn a_running_program_is_followed_and_left_running() {
     // It waits to be told to go, so the session is in place before it does anything worth seeing: the recorder may
     // itself wait several seconds for a trace session to come free, longer than any fixed idle is sure to cover.
     let go = s.path("go.txt");
+    // However the test ends, the target is told to go, so it runs to its own end instead of waiting for ever (a
+    // leftover holds its program file, and the next build can't replace it).
+    struct Release(String);
+    impl Drop for Release {
+        fn drop(&mut self) {
+            let _ = std::fs::write(&self.0, "go");
+        }
+    }
+    let _release = Release(go.clone());
     let mut target = spawn(&[format!("await={go}"), "sleep=1000".into(), format!("write={file}|x"), "spawn".into(), format!("read={file}"), "exit=4".into()]);
     let pid = target.id();
     let started = s.test.tool("observe_start", json!({"pid": pid}));
