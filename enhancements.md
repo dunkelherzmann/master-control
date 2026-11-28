@@ -314,3 +314,20 @@ Every request, in the order received. `- [ ]` pending, `- [x]` shipped (with ver
   - [x] Mac: ScreenCaptureKit audio
   - [x] Linux: PipeWire's monitor of the default output
   - [x] Windows: WASAPI loopback
+
+- [ ] 2026-11-28 (Mac, Linux, Windows): **A password vault for sudo** (his request, to be evaluated by the Sage
+  first): a vault where he enters the sudo password of each machine, master and workers, which Master Control uses
+  without the coding agent ever knowing them. He adds that Master Control is meant to have passwordless sudo or admin
+  rights so it needs no passwords at all: "Master" Control gives the coding agent unrestricted access to every host.
+  **The Sage's evaluation (2026-11-28): not recommended as a vault.** Unrestricted access is already in place without
+  passwords: `sudo -n` works on the Mac (`/etc/sudoers.d/master-control`) and on Linux (`NOPASSWD: ALL`), and the
+  Windows worker runs elevated (High Mandatory Level), so `exec` with `elevated` needs no password anywhere. A vault
+  would keep root passwords on disk for no gain there, and an agent may not type a real password through it unless
+  he approves each use where it is stored. The gap that remains is the system's own password dialogs, which sudo
+  doesn't cover: polkit on Linux (no rule in `/etc/polkit-1/rules.d`, so pkexec and GNOME Settings still ask) and
+  macOS's authorization dialogs. Proposed instead, waiting for his yes:
+  - [ ] Linux: Start installs a polkit rule that lets this user do every admin action without asking, beside the
+    sudo rule, and Cleanup removes it; `status` says whether both are in place
+  - [ ] macOS: Start checks the sudo rule and says how to add it when it's missing (it was put in by hand); the
+    system's authorization dialogs stay the person's, since synthetic input can't type into them
+  - [ ] Windows: nothing to add (the elevated worker starts programs elevated, so no UAC prompt appears)
