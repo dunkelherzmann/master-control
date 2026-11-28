@@ -342,23 +342,53 @@ fn trace_sessions() -> Vec<String> {
     String::from_utf8_lossy(&listed.stdout).lines().filter_map(|line| line.split_whitespace().next()).map(str::to_string).collect()
 }
 
-/// A recorder ended from outside never stops its trace session, and Windows keeps it, taking one of its few places
-/// for such sessions. The next recorder to start stops it.
-#[test]
-fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
-    let s = Session::new();
-    let session = s.start(&["sleep=60000".into()], json!({}));
+/// A running session's target and recorder, once its state says it runs.
+fn running(s: &Session, session: u64) -> (u64, u64) {
     let state = s.test.home.join("sessions").join(session.to_string()).join("state.json");
     let deadline = Instant::now() + Duration::from_secs(30);
-    let (target, tracer) = loop {
+    loop {
         let read: Value = std::fs::read(&state).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()).unwrap_or(Value::Null);
         if read["state"] == "running" {
-            break (read["pid"].as_u64().unwrap(), read["tracer"].as_u64().unwrap());
+            return (read["pid"].as_u64().unwrap(), read["tracer"].as_u64().unwrap());
         }
         assert!(Instant::now() < deadline, "the session didn't start: {read}");
         std::thread::sleep(Duration::from_millis(100));
-    };
-    let name = format!("MasterControl-{session}-{tracer}");
+    }
+}
+
+/// Ends the processes and trace sessions a test made, however it ends, so none is left taking a place on the machine.
+struct Leftovers {
+    pids: Vec<u64>,
+    sessions: Vec<String>,
+}
+
+impl Drop for Leftovers {
+    fn drop(&mut self) {
+        for pid in &self.pids {
+            let _ = std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output();
+        }
+        let listed = trace_sessions();
+        for name in self.sessions.iter().filter(|name| listed.contains(name)) {
+            let _ = std::process::Command::new("logman").args(["stop", name, "-ets"]).output();
+        }
+    }
+}
+
+/// A recorder ended from outside never stops its trace session, and Windows keeps it, taking one of its few places
+/// for such sessions. The next recorder to start stops it, and leaves a session whose recorder still runs alone.
+#[test]
+fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
+    let s = Session::new();
+    let mut leftovers = Leftovers { pids: Vec::new(), sessions: Vec::new() };
+    let live = s.start(&["sleep=60000".into()], json!({}));
+    let (live_target, live_tracer) = running(&s, live);
+    leftovers.pids.push(live_target);
+    let live_name = format!("MasterControl-{live}-{live_tracer}");
+    let killed = s.start(&["sleep=60000".into()], json!({}));
+    let (target, tracer) = running(&s, killed);
+    leftovers.pids.extend([tracer, target]);
+    let name = format!("MasterControl-{killed}-{tracer}");
+    leftovers.sessions.extend([name.clone(), live_name.clone()]);
     assert!(trace_sessions().contains(&name), "{name} runs while its recorder does");
     for pid in [tracer, target] {
         std::process::Command::new("taskkill").args(["/F", "/PID", &pid.to_string()]).output().unwrap();
@@ -368,10 +398,9 @@ fn a_killed_recorders_trace_session_is_stopped_by_the_next_one() {
 
     let (_, verdict) = s.run(&["exit=0".into()], json!({}));
     assert_eq!(verdict["state"], "exited", "{verdict}");
-    let left = trace_sessions().contains(&name);
-    if left {
-        // Not left taking a place on the machine when the test fails.
-        let _ = std::process::Command::new("logman").args(["stop", &name, "-ets"]).output();
-    }
-    assert!(!left, "the next recorder stopped {name}");
+    let listed = trace_sessions();
+    assert!(listed.contains(&live_name), "a session whose recorder runs is left alone: {live_name}");
+    assert!(!listed.contains(&name), "the next recorder stopped {name}");
+    let verdict = s.test.tool("observe_stop", json!({"session": live}));
+    assert_eq!(verdict["state"], "stopped", "{verdict}");
 }

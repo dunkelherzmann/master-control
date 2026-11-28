@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use mc_core::{Class, Event, Store};
 use serde_json::{json, Value};
 use windows_sys::core::GUID;
-use windows_sys::Win32::Foundation::CloseHandle;
+use windows_sys::Win32::Foundation::{CloseHandle, GetLastError};
 use windows_sys::Win32::Storage::FileSystem::QueryDosDeviceW;
 use windows_sys::Win32::System::Diagnostics::Etw::{
     CloseTrace, ControlTraceW, EnableTraceEx2, OpenTraceW, ProcessTrace, QueryAllTracesW, StartTraceW, TdhGetProperty, TdhGetPropertySize, CONTROLTRACE_HANDLE,
@@ -667,8 +667,9 @@ fn named_block() -> Vec<u64> {
 
 /// Stops the trace sessions of ours whose recorder is gone. A recorder ended from outside never stops its session,
 /// and Windows keeps it running with nobody reading it, in one of the few places it has for sessions that carry the
-/// kernel's events. A session is left alone while a program of ours (the installed one or a test's copy, whichever
-/// started it) runs under its recorder's process id.
+/// kernel's events. A session is stopped only when its recorder is surely gone: no process has its id, or the one
+/// that has it now is another program (the id was used again). When the process can't be asked about, the session
+/// is left alone.
 fn stop_orphaned_sessions() {
     const MOST: usize = 64;
     let mut blocks: Vec<Vec<u64>> = (0..MOST).map(|_| named_block()).collect();
@@ -680,9 +681,6 @@ fn stop_orphaned_sessions() {
     if queried != 0 && queried != 234 {
         return;
     }
-    let program = |path: &str| Path::new(path).file_name().map(|name| name.to_string_lossy().to_lowercase());
-    let own = std::env::current_exe().ok().and_then(|path| program(&path.to_string_lossy()));
-    let ours = |path: &str| program(path).is_some_and(|name| Some(&name) == own.as_ref() || name == "master-control.exe" || name == "mc-agent.exe");
     for block in blocks.iter().take(count as usize) {
         // SAFETY: the block is at least as large as the structure, and its name ends with a zero inside the block.
         let name = unsafe {
@@ -692,7 +690,7 @@ fn stop_orphaned_sessions() {
             String::from_utf16_lossy(&units[..units.iter().position(|unit| *unit == 0).unwrap_or(0)])
         };
         let Some(recorder) = recorder_of(&name) else { continue };
-        if recorder == std::process::id() || image_of(recorder).is_some_and(|path| ours(&path)) {
+        if recorder == std::process::id() || !recorder_is_gone(recorder) {
             continue;
         }
         let mut stop = named_block();
@@ -700,6 +698,36 @@ fn stop_orphaned_sessions() {
         // SAFETY: the name is zero-ended; the block has room for what the stop writes back.
         let stopped = unsafe { ControlTraceW(CONTROLTRACE_HANDLE { Value: 0 }, wide_name.as_ptr(), stop.as_mut_ptr().cast(), CONTROL_STOP) };
         eprintln!("observe-run: stopped the trace session {name}, whose recorder is gone ({stopped})");
+    }
+}
+
+/// Whether the recorder with this process id is surely gone: no process has the id, or the one that has it now runs
+/// a program other than the recorders' (the installed agent, a test's copy, or this very program).
+fn recorder_is_gone(pid: u32) -> bool {
+    const STILL_ACTIVE: u32 = 259;
+    const NO_SUCH_PROCESS: u32 = 87;
+    // SAFETY: plain calls; the handle is checked and closed, the buffer's length is given and updated by the call.
+    unsafe {
+        let process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if process.is_null() {
+            return GetLastError() == NO_SUCH_PROCESS;
+        }
+        let mut code = 0u32;
+        let ended = GetExitCodeProcess(process, &mut code) != 0 && code != STILL_ACTIVE;
+        let mut path = [0u16; 1024];
+        let mut length = path.len() as u32;
+        let named = QueryFullProcessImageNameW(process, 0, path.as_mut_ptr(), &mut length) != 0;
+        CloseHandle(process);
+        if ended {
+            return true;
+        }
+        if !named {
+            return false;
+        }
+        let program = |path: &str| Path::new(path).file_name().map(|name| name.to_string_lossy().to_lowercase());
+        let running = program(&String::from_utf16_lossy(&path[..length as usize]));
+        let own = std::env::current_exe().ok().and_then(|path| program(&path.to_string_lossy()));
+        !running.is_some_and(|name| Some(&name) == own.as_ref() || name == "master-control.exe" || name == "mc-agent.exe")
     }
 }
 
