@@ -1,7 +1,7 @@
 # Working in Master Control
 
 Herbert's rules are in the `herberts-preferences` skill; this file holds what is particular to this project.
-The spec is `specs.md` (his name for it here); `bugs.md`, `enhancements.md` and `pending.md` are at the root;
+The spec is `specs.md`; `bugs.md`, `enhancements.md` and `pending.md` are at the root;
 the reference study is in `.investigation/` (untracked). The repo is public on GitHub
 (`dunkelherzmann/master-control`, since 2026-11-12): nothing private goes into tracked files (no machine names,
 LAN addresses, local paths or pictures of real desktops; other names for the machines go in the
@@ -17,8 +17,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 
 - **`AGENT-GUIDE.md`** is for agents that use Master Control (this file is for working on it). It is built into
   `mctl`; a test fails when it doesn't name a tool, so a new tool gets a line there in the same change.
-- **Layout:** Cargo workspace: `core/` (event store), `agent/` (the `mc-agent` program), `app/` (the
-  `master-control` window, self-drawn, icon `design/icon.svg`).
+- **Layout:** Cargo workspace: `core/` (event store), `agent/` (the `mc-agent` program), `mctl/` (the master),
+  `app/` (the `master-control` window, self-drawn until its egui rewrite in `enhancements.md`; icon `design/icon.svg`).
 - **A master is not "not a worker"** (his correction, 2026-11-11): the master gives agents full use of its own
   machine as well as of its workers, so the app never says the master machine lacks the worker role.
 - **Master and workers** (his design): the master (`mctl`, the Mac) has full control of itself and its workers;
@@ -31,8 +31,9 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
 ## Build, test, install
 
 - `cargo test --workspace` on the Mac; `scripts/check.sh` on all three machines (sends the last commit to Linux
-  and Windows through Master Control with `scripts/mc-exec`, the copy in this repository; `-w` sends the working tree). It runs clippy on each machine: code gated per system
+  and Windows through Master Control with `scripts/mc-exec`; `-w` sends the working tree). It runs clippy on each machine: code gated per system
   leaves helpers and imports unused elsewhere, which only that system's lint shows.
+- `scripts/mutants.sh` (cargo-mutants on `mc-core`; `-f FILE`, `--all`) before merging a core change; it reports.
 - Linux GUI tests use Xvfb (they set `DISPLAY` and clear `WAYLAND_DISPLAY`, which picks the X11 backend).
   Windows GUI tests need the desktop session, which is where Master Control's `exec` runs them.
 - `macos/scripts/build.sh` makes `dist/Master Control.app`; the Linux file is the static musl build, and the Linux
@@ -80,9 +81,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   as `agent/tests/common` and `api.rs` do): otherwise someone using the machine during the run gets the take-over
   question from the test, and a Cancel fails it (2026-11-27, on Windows).
 - **Tests that run the master's Start or Cleanup must set `MC_AGENTS_HOME`** to a scratch folder: without it
-  they edit the real settings of every AI agent on the machine (`~/.claude.json`, `~/.codex/config.toml`, …). The same
-  goes for trying `mctl start` by hand: on 2026-11-11 a hand run with only `MC_INSTALL_DIR` set pointed the real
-  agents at a scratch copy until Start was run again from the installed app.
+  they edit the real settings of every AI agent on the machine (`~/.claude.json`, `~/.codex/config.toml`, …). So does
+  `mctl start` by hand: one with only `MC_INSTALL_DIR` set pointed the real agents at a scratch copy (2026-11-11).
 - **macOS windows:** the window list and the accessibility layer name the same window differently (a browser
   tab playing sound has a mark in one); match them by `_AXUIElementGetWindow` (unpublished but present), then
   title, then place. `AXWindows` lists only the windows on the desktop in view. A system dialog (layer 8, owner
@@ -96,9 +96,8 @@ on Linux, Windows and macOS. Rust core; it productises the `master-control` skil
   its own (`relative_address_base` is 0): its first loaded part's address is the base.
 - **macOS crash reports** (`~/Library/Logs/DiagnosticReports/NAME-date.ips`) arrive about two seconds after a
   crash, but a program that crashes repeatedly gets one for its first crash and none for a good while after.
-  It is not a limit on files kept: clearing the reports and the reporter's note
-  (`~/Library/Application Support/CrashReporter/NAME_*.plist`) changed nothing (an earlier note here said
-  otherwise; it was a guess). A copy of the program under a new name is reported at once, which is how the
+  Clearing the reports and the reporter's note
+  (`~/Library/Application Support/CrashReporter/NAME_*.plist`) changes nothing. A copy of the program under a new name is reported at once, which is how the
   crash test gets a report every run. The test removes exactly the reports and notes it caused (his go-ahead,
   2026-11-11).
 - **`mctl call` is one process per call,** so the master's own tools keep no last picture between calls: give
