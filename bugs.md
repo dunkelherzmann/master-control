@@ -108,8 +108,8 @@ marked *found in testing*.
   2026-11-28: not seen again in three whole `cargo test -p mc-agent` runs under CPU load, nor in a new test
   that stops twelve sessions right after they start (`a_session_stopped_at_once_says_its_target_was_killed`).
   Two more guards: the end waits up to 2 s for the child's status (the system can tell of an exit a moment
-  before the status can be taken), and a session that ended its target itself says SIGKILL when nothing else
-  said how. Still open until the cause is seen.
+  before the status can be taken), and a stopped session whose target's end nothing told kills it and reads
+  its status itself. Still open until the cause is seen.
 - [x] 2026-11-11: **The Claude app lost its Master Control entry half an hour after Start** (macOS; found while
   drawing the status section): the app was open when Start wrote to its settings file; it keeps its settings in
   memory and wrote them back without the entry. Start now says so when the app is open (quit it, press Start
