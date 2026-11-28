@@ -206,4 +206,4 @@ marked *found in testing*.
   new `cargo audit` step of `scripts/check.sh`). A stack overflow in `Url::origin()` on nested `blob:` URLs; `url`
   comes in through `ureq` (mc-agent, mctl). Fixed in `url` 2.5.9: a dependency upgrade (`cargo update -p url`) left
   to its own PR. Until then `scripts/check.sh` ignores that one advisory, with a comment; drop the ignore with the
-  upgrade. Fixed 2026-11-28 (#PR): `url` 2.5.9, and `check.sh` no longer ignores it.
+  upgrade. Fixed 2026-11-28 (#38): `url` 2.5.9, and `check.sh` no longer ignores it.
