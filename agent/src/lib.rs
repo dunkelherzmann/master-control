@@ -14,6 +14,7 @@ mod http;
 pub mod identity;
 pub mod install;
 mod jobs;
+mod listen;
 pub mod mcp;
 pub mod observe;
 mod platform;

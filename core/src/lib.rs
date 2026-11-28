@@ -1,5 +1,6 @@
 //! What every part of Master Control shares: the shape of an observed event and the store a session keeps them in.
 
+pub mod audio;
 mod event;
 pub mod link;
 mod store;

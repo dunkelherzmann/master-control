@@ -16,7 +16,8 @@ keyboard, mouse) and observe everything a target app does (syscalls, files, regi
 on Linux, Windows and macOS. Rust core; it productises the `master-control` skill.
 
 - **`AGENT-GUIDE.md`** is for agents that use Master Control (this file is for working on it). It is built into
-  `mctl`; a test fails when it doesn't name a tool, so a new tool gets a line there in the same change.
+  `mctl`; a test fails when it doesn't name a tool, so a new tool gets a line there in the same change, and in the
+  two tool lists `agent/tests/api.rs` pins.
 - **Layout:** Cargo workspace: `core/` (event store), `agent/` (the `mc-agent` program), `mctl/` (the master),
   `app/` (the `master-control` window, self-drawn until its egui rewrite in `enhancements.md`; icon `design/icon.svg`).
 - **A master is not "not a worker"** (his correction, 2026-11-11): the master gives agents full use of its own

@@ -360,6 +360,33 @@ pub const TOOLS: &[Tool] = &[
         run: crate::control::select,
     },
     Tool {
+        name: "listen_start",
+        description: "Start recording what the machine plays (its default output, before volume and mute: alerts, \
+                      bells, any app's sound), to find out afterwards what was heard. Do what should make a sound, then \
+                      call listen_stop. Records at most `limit_s` seconds (default 60). Returns a listening number.",
+        schema: || object(json!({"limit_s": {"type": "integer", "description": "Stop recording by itself after this many seconds, 1 to 600. Default 60."}}), &[]),
+        run: crate::listen::listen_start,
+    },
+    Tool {
+        name: "listen_stop",
+        description: "End a listening and say what was heard: each sound's start and end (seconds from the start), \
+                      peak and average level in dBFS and its pitch in Hz (null for noise), and the recording as a WAV \
+                      file on the machine (`wav`; fetch it with pull). `wait_for_sound_s` first waits up to that long \
+                      for a sound to come and go (`timed_out` says if none did). Can be asked again for the same answer.",
+        schema: || {
+            object(
+                json!({
+                    "listen": {"type": "integer", "description": "The number listen_start gave."},
+                    "wait_for_sound_s": {"type": "integer", "description": "Wait up to this many seconds, at most 60, for a sound to start and end before stopping."},
+                    "threshold_dbfs": {"type": "number", "description": "The quietest level that counts as a sound, -120 to 0. Default -50."},
+                    "save_to": {"type": "string", "description": "Write the WAV here instead of the listening's own folder."}
+                }),
+                &["listen"],
+            )
+        },
+        run: crate::listen::listen_stop,
+    },
+    Tool {
         name: "observe_start",
         description: "Start a command, or follow one that is running (`pid`), and record what it and everything it starts do: programs run, files opened, read, \
                       written, renamed and deleted, network connections, memory mappings, crashes (what is told differs by \
