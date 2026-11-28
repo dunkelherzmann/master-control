@@ -55,8 +55,9 @@ What is still to decide, prove and build, in order. Tick an item with its PR onc
 4. [x] Accessibility tree, `find`, `wait_for` on Linux and Windows, and actions aimed at an element (2026-11-11;
    52 tests pass on Linux and Windows)
    - [ ] Linux is tested with one GTK 4 app (zenity); GTK 3, Qt, Electron and Chromium apps are not tried yet
-   - [ ] Linux: GTK 4 reports places that are a few pixels off for some widgets; centres still land inside them.
-     libadwaita dialogs are off by about 30 pixels, enough to miss (`bugs.md`, 2026-11-16)
+   - [ ] Linux: GTK 4 reports places that leave out its containers' padding (about 30 pixels in libadwaita dialogs).
+     A plain click by id no longer uses them (`bugs.md`, 2026-11-16); double and right clicks, drags and scrolling
+     by id still do, and the places in `tree` and `find` are still GTK's
    - [ ] Windows is tested with classic Win32 controls; WPF, WinUI, WebView2 and Electron apps are not tried yet
    - [x] Element actions beyond the pointer: `set_value`, `toggle`, `expand`, `select` and `press` without moving
      the pointer, tested on Linux and Windows

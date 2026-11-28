@@ -394,6 +394,13 @@ impl Desktop for X11Desktop {
         super::atspi::act(window, target, action)
     }
 
+    fn click_without_pointer(&self, window: &WindowInfo, target: super::Target, press: bool) -> Result<Option<String>> {
+        super::atspi::click_without_pointer(window, target, press, || {
+            self.key(Key::Tab, true)?;
+            self.key(Key::Tab, false)
+        })
+    }
+
     fn clipboard(&self) -> Result<Option<String>> {
         super::x11_clipboard::read(&self.connection, self.root)
     }

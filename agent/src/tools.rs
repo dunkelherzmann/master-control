@@ -224,7 +224,9 @@ pub const TOOLS: &[Tool] = &[
         name: "click",
         description: "Click at a position. With `window`, that window is brought to the front first and the position \
                       must be inside it. With `background` (macOS) nothing comes to the front and the pointer stays \
-                      where it is; `type_text` and `key` take it too.",
+                      where it is; `type_text` and `key` take it too. On an element of a GTK 4 app, whose places \
+                      can be off, a plain click presses it or gives a field the keyboard without the pointer; the \
+                      answer's `did` says which.",
         schema: || object(json!({"hold": {"type": "string", "description": "Modifier keys held down during the click: ctrl, shift, alt, cmd/win, or several (ctrl+shift). Ctrl-click (cmd on macOS) adds an item to a selection; shift-click selects a range."}, "background": {"type": "boolean", "description": "macOS only: leave the pointer, the real keyboard and the window order alone. A click then presses what is at the point (or gives a text field the keyboard) through assistive technology; text and keys are handed to the window's app only."}, "element": {"type": "string", "description": "An element id from tree or find, instead of x and y: the action goes to its centre and its window is brought to the front."}, "x": {"type": "number", "description": "In the pixels of the last screenshot (or of `capture`)."}, "y": {"type": "number"}, "capture": {"type": "integer", "description": "The screenshot the position is from. Default: the last one."}, "window": {"description": "The window it is for: its id or its title (or a part of the title only one window has). It is brought to the front first; the action is refused if it doesn't come."}, "button": {"type": "string", "enum": ["left", "middle", "right"]}}), &[]),
         run: crate::control::click,
     },

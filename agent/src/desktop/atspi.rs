@@ -13,6 +13,7 @@ mod roles;
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 /// Bits of the state set, as AT-SPI numbers them.
+const STATE_FOCUSABLE: u32 = 11;
 const STATE_FOCUSED: u32 = 12;
 const STATE_SENSITIVE: u32 = 24;
 /// Positions relative to the window, which every toolkit can give; desktop positions some can't.
@@ -283,9 +284,11 @@ impl Bus {
 }
 
 /// Does something to one element of a window, found again by the way the tree led to it.
-pub fn act(window: &WindowInfo, target: super::Target, action: &super::ElementAction) -> Result<super::Acted> {
-    use super::{Acted, ElementAction};
-    let bus = Bus::open()?;
+/// An element found again: itself, its parent and its index there, and its role.
+type Reached = (Reference, Option<(Reference, u32)>, String);
+
+/// The element a tree named, found again by the way down to it; refused when it is no longer what the tree showed.
+fn reach(bus: &Bus, window: &WindowInfo, target: super::Target) -> Result<Reached> {
     let Some(mut at) = bus.window(window) else {
         return Err(DesktopError::not_supported(format!("the app behind \"{}\" doesn't describe its windows to assistive technology", window.title)));
     };
@@ -299,6 +302,76 @@ pub fn act(window: &WindowInfo, target: super::Target, action: &super::ElementAc
     }
     let role = bus.role(&at);
     target.check(&common_role(&role), &bus.name(&at))?;
+    Ok((at, parent, role))
+}
+
+/// Whether a toolkit's element places leave out its containers' padding. GTK 4 builds a place from each element's
+/// bounds inside its parent widget, counted from the parent's content box, and adds up those of the parents that
+/// have accessible elements: every border and padding on the way is lost, and so is the offset of a widget that
+/// has no element of its own (zenity 4's libadwaita dialog: 24 pixels across, 12 to 33 down).
+fn places_leave_out_padding(toolkit: &str, version: &str) -> bool {
+    toolkit.eq_ignore_ascii_case("gtk") && version.starts_with("4.")
+}
+
+/// How many times Tab is pressed, at most, to bring the keyboard to an element.
+const MOST_TABS: usize = 40;
+
+/// A plain click on an element of an app whose places can't be aimed at. What has a click action is pressed with it.
+/// A field is given the keyboard with Tab, since GTK 4 refuses assistive technology's GrabFocus, and its caret goes
+/// to the end, where a click past its text leaves it (GTK selects the whole text on Tab). With `press` false,
+/// anything that can take the keyboard is given it that way and nothing is pressed. None for every other app and
+/// element, and for one Tab doesn't reach: the pointer is used.
+pub fn click_without_pointer(window: &WindowInfo, target: super::Target, press: bool, tab: impl Fn() -> Result<()>) -> Result<Option<String>> {
+    let bus = Bus::open()?;
+    let (at, _, _) = reach(&bus, window, target)?;
+    let application = (at.0.clone(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").map_err(failed)?);
+    let text_of = |name: &str| bus.property(&application, "org.a11y.atspi.Application", name).and_then(|value| String::try_from(value).ok()).unwrap_or_default();
+    let (toolkit, version) = (text_of("ToolkitName"), text_of("Version"));
+    if !places_leave_out_padding(&toolkit, &version) {
+        return Ok(None);
+    }
+    let why = format!("{toolkit} {version} gives element places without its containers' padding, so the pointer could miss");
+    // "click" only: a GTK 4 text field's "activate" is Enter, which would submit its dialog.
+    if press && bus.do_action(&at, &["click"]) {
+        return Ok(Some(format!("pressed it through assistive technology: {why}")));
+    }
+    // A click gives a field the keyboard; on anything else it does more (a GTK 4 check box has no click action,
+    // and the click ticks it), so only the pointer will do.
+    let interfaces: Vec<String> = bus.call(&at, ACCESSIBLE, "GetInterfaces").unwrap_or_default();
+    let field = interfaces.iter().any(|interface| interface == "org.a11y.atspi.EditableText");
+    if !bus.has(&at, &[STATE_FOCUSABLE]) || (press && !field) {
+        return Ok(None);
+    }
+    let mut tabs = 0;
+    while !bus.has(&at, &[STATE_FOCUSED]) {
+        if tabs == MOST_TABS {
+            return Ok(None);
+        }
+        tab()?;
+        tabs += 1;
+        // The toolkit moves the keyboard when its loop next turns.
+        for _ in 0..10 {
+            std::thread::sleep(std::time::Duration::from_millis(15));
+            if bus.has(&at, &[STATE_FOCUSED]) {
+                break;
+            }
+        }
+    }
+    if tabs > 0 && field {
+        let length = bus.property(&at, "org.a11y.atspi.Text", "CharacterCount").and_then(|value| i32::try_from(value).ok()).unwrap_or(0);
+        let _ = bus.connection.call_method(Some(at.0.as_str()), at.1.as_str(), Some("org.a11y.atspi.Text"), "SetCaretOffset", &(length,));
+    }
+    Ok(Some(match tabs {
+        0 => "it had the keyboard already".to_string(),
+        1 => format!("gave it the keyboard with Tab: {why}"),
+        _ => format!("gave it the keyboard with Tab, pressed {tabs} times: {why}"),
+    }))
+}
+
+pub fn act(window: &WindowInfo, target: super::Target, action: &super::ElementAction) -> Result<super::Acted> {
+    use super::{Acted, ElementAction};
+    let bus = Bus::open()?;
+    let (at, parent, role) = reach(&bus, window, target)?;
     let interfaces: Vec<String> = bus.call(&at, ACCESSIBLE, "GetInterfaces").unwrap_or_default();
     let offers = |name: &str| interfaces.iter().any(|interface| interface == name);
     let cannot = |what: &str| DesktopError::not_supported(format!("a {} can't be {what} ({})", target.role, bus.actions(&at)));
@@ -402,7 +475,17 @@ pub fn tree(window: &WindowInfo, limits: TreeLimits) -> Result<(Element, bool)> 
 
 #[cfg(test)]
 mod tests {
-    use super::{instance_id, roles, shared_start};
+    use super::{instance_id, places_leave_out_padding, roles, shared_start};
+
+    #[test]
+    fn only_gtk_4_places_are_distrusted() {
+        assert!(places_leave_out_padding("GTK", "4.24.1"));
+        assert!(places_leave_out_padding("gtk", "4.14.2"));
+        assert!(!places_leave_out_padding("gtk", "3.24.52"));
+        assert!(!places_leave_out_padding("Chromium", "1.0"));
+        assert!(!places_leave_out_padding("AccessKit", "0.20"));
+        assert!(!places_leave_out_padding("", ""));
+    }
 
     #[test]
     fn titles_are_compared_by_how_they_begin() {

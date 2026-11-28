@@ -360,6 +360,9 @@ impl Desktop for Asking {
     fn quiet_click(&self, window: &WindowInfo, x: i32, y: i32) -> crate::desktop::Result<String> {
         self.0.quiet_click(window, x, y)
     }
+    fn click_without_pointer(&self, window: &WindowInfo, target: Target, press: bool) -> crate::desktop::Result<Option<String>> {
+        self.0.click_without_pointer(window, target, press)
+    }
     fn keyboard_owner(&self, window: &WindowInfo) -> Option<(String, String)> {
         self.0.keyboard_owner(window)
     }

@@ -691,6 +691,17 @@ fn click_with(agent: &Agent, args: &Value, button: Button, times: u32) -> Result
         return click_quietly(agent, desktop.as_ref(), args);
     }
     let ((x, y), window) = aim(agent, desktop.as_ref(), args)?;
+    // Some toolkits give element places that would aim the pointer beside the element: a plain click on one goes
+    // through assistive technology instead.
+    if let (Some(id), Some(window), Button::Left, 1, true) = (text(args, "element")?, &window, button, times, held.is_empty()) {
+        let (_, path, role, name) = agent.trees.place(id)?;
+        let did = desktop
+            .click_without_pointer(window, Target { path: &path, role: &role, name: &name }, true)
+            .map_err(|error| ToolError { code: error.code, message: format!("element {id} ({role} \"{name}\"): {}", error.message) })?;
+        if let Some(did) = did {
+            return Ok(delivered(Some(window.clone()), json!({ "element": id, "did": did })));
+        }
+    }
     move_to(desktop.as_ref(), x, y)?;
     holding(desktop.as_ref(), &held, || press(desktop.as_ref(), button, times))?;
     let mut answer = json!({ "at": { "x": x, "y": y } });
@@ -777,15 +788,19 @@ fn keyboard_target(agent: &Agent, desktop: &dyn Desktop, args: &Value, forward: 
         }
         match desktop.act(&window, Target { path: &path, role: &role, name: &name }, &ElementAction::Focus) {
             Ok(_) => {}
-            // Some toolkits (GTK 4) give assistive technology no way to hand over the keyboard: a click on the
-            // element does it, where the window may come forward.
+            // Some toolkits (GTK 4) give assistive technology no way to hand over the keyboard: Tab does it where the
+            // toolkit's places can't be aimed at, else a click on the element, where the window may come forward.
             Err(error) if error.code == "not_supported" && forward => {
-                let (_, frame_then, place) = agent.trees.element(id)?;
-                if window.frame != frame_then {
-                    return Err(ToolError { code: "element_gone", message: format!("element {id}: the window \"{}\" moved or changed size since the tree was read; read the tree again", window.title) });
+                let target = Target { path: &path, role: &role, name: &name };
+                let tabbed = desktop.click_without_pointer(&window, target, false).map_err(|error| ToolError { code: error.code, message: format!("element {id} ({role} \"{name}\"): {}", error.message) })?;
+                if tabbed.is_none() {
+                    let (_, frame_then, place) = agent.trees.element(id)?;
+                    if window.frame != frame_then {
+                        return Err(ToolError { code: "element_gone", message: format!("element {id}: the window \"{}\" moved or changed size since the tree was read; read the tree again", window.title) });
+                    }
+                    move_to(desktop, place.x + (place.width / 2) as i32, place.y + (place.height / 2) as i32)?;
+                    press(desktop, Button::Left, 1)?;
                 }
-                move_to(desktop, place.x + (place.width / 2) as i32, place.y + (place.height / 2) as i32)?;
-                press(desktop, Button::Left, 1)?;
             }
             Err(error) => return Err(ToolError { code: error.code, message: format!("element {id} ({role} \"{name}\"): {}", error.message) }),
         }
